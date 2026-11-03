@@ -7,6 +7,7 @@ import { canAdminTenant, requireEvent, requireViewer } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { flattenErrors, hexColorSchema, slugSchema } from "@/lib/validation";
+import { appUrl } from "@/lib/format";
 
 export interface FormState {
   ok?: boolean;
@@ -82,7 +83,7 @@ export async function inviteMember(_: FormState, fd: FormData): Promise<FormStat
   let userId: string | undefined;
 
   const invite = await admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/login`,
+    redirectTo: appUrl("/login"),
   });
   if (invite.data.user) {
     userId = invite.data.user.id;

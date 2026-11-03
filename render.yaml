@@ -1,0 +1,33 @@
+# Blueprint de Render: https://render.com/docs/blueprint-spec
+# Render → New → Blueprint → elige este repo. Te pedirá los valores marcados con sync: false.
+services:
+  - type: web
+    name: eventos-below
+    runtime: node
+    region: virginia # la más cercana a Lima entre las regiones de Render
+    plan: free # para el día del evento usa "starter": el plan free se duerme tras 15 min sin tráfico
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      # Supabase → Project Settings → API
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # Opcional: si lo dejas vacío se usa la URL .onrender.com del servicio.
+      # Defínelo si conectas un dominio propio.
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      # Opcional: correo real con Resend (vacío = correo simulado en los logs)
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false

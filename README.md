@@ -125,7 +125,17 @@ src/
 
 **Correo real:** crea una API key en [Resend](https://resend.com), verifica tu dominio y define `RESEND_API_KEY` y `EMAIL_FROM`.
 
-**Despliegue:** Vercel con las mismas variables. `NEXT_PUBLIC_APP_URL` debe ser la URL pública (se usa en los enlaces del correo). La cámara del check-in requiere **HTTPS**.
+### Despliegue en Render
+
+1. En Render: **New → Blueprint** → conecta GitHub y elige este repo. Render lee `render.yaml`.
+2. Completa las variables que pide: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY`. `NEXT_PUBLIC_APP_URL` es opcional: si queda vacío se usa la URL `.onrender.com`.
+3. Cuando termine el primer deploy, en Supabase → **Authentication → URL Configuration** pon la URL de Render como *Site URL*. Así los correos de invitación apuntan a tu app.
+4. Cada push a `main` vuelve a desplegar.
+
+**Importante:**
+- El plan *free* se duerme tras 15 min sin tráfico (la primera visita tarda ~1 min en despertar). Para el día del evento cambia a *Starter*.
+- Las variables `NEXT_PUBLIC_*` se incrustan al compilar: si las cambias, haz **Manual Deploy → Clear build cache & deploy**.
+- La cámara del check-in requiere HTTPS, que Render ya incluye.
 
 ---
 

@@ -61,6 +61,8 @@ export function brandStyle(hex: string) {
   return { "--brand": hex, "--brand-fg": readableOn(hex) } as React.CSSProperties;
 }
 
+/** URL pública: NEXT_PUBLIC_APP_URL → URL automática de Render → localhost */
 export function appUrl(path = "") {
-  return `${(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "")}${path}`;
+  const base = process.env.NEXT_PUBLIC_APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:3000";
+  return `${base.replace(/\/$/, "")}${path}`;
 }
