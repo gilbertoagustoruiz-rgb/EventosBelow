@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --color-brand: var(--brand);
+  --color-brand-fg: var(--brand-fg);
+}
+
+:root {
+  --brand: #4f46e5;
+  --brand-fg: #ffffff;
+}
+
+body {
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+/* Componentes base reutilizables */
+@utility input {
+  @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[15px] text-slate-900
+    placeholder:text-slate-400 outline-none transition
+    focus:border-brand focus:ring-4 focus:ring-brand/15
+    disabled:bg-slate-100 disabled:text-slate-500
+    aria-invalid:border-red-500 aria-invalid:focus:ring-red-500/15;
+}
+@utility label {
+  @apply mb-1.5 block text-sm font-medium text-slate-700;
+}
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold
+    transition disabled:cursor-not-allowed disabled:opacity-60;
+}
+@utility btn-brand {
+  @apply btn bg-brand text-brand-fg hover:brightness-110 active:brightness-95;
+}
+@utility btn-dark {
+  @apply btn bg-slate-900 text-white hover:bg-slate-800;
+}
+@utility btn-ghost {
+  @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+}
+@utility card {
+  @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}
