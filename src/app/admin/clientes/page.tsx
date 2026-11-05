@@ -39,7 +39,7 @@ export default async function TenantsPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold">{viewer.isPlatformAdmin ? "Clientes" : "Equipo"}</h1>
-        <p className="text-slate-600">Empresas cliente y los usuarios que administran o acreditan sus eventos.</p>
+        <p className="text-slate-600">Clientes y coordinadores de BELOW GROUP. La acreditación funciona sin login mediante enlaces.</p>
       </div>
 
       {viewer.isPlatformAdmin && (
@@ -73,7 +73,7 @@ export default async function TenantsPage() {
                     {m.must_change_password && <p className="text-xs text-amber-700">Aún no cambia su contraseña temporal</p>}
                   </div>
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-                    {m.role === "CLIENT_ADMIN" ? "Administrador" : "Anfitrión"}
+                    {m.role === "CLIENT_ADMIN" ? "Coordinador" : "Acceso anterior (anfitrión)"}
                   </span>
                   {m.user_id !== viewer.userId && (
                     <>

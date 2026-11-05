@@ -76,7 +76,7 @@ export function canAdminTenant(viewer: Viewer, tenantId: string) {
 }
 
 export function canHostTenant(viewer: Viewer, tenantId: string) {
-  return viewer.isPlatformAdmin || viewer.memberships.some((m) => m.tenant_id === tenantId);
+  return canAdminTenant(viewer, tenantId);
 }
 
 /** Tenants donde el usuario es administrador */

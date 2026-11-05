@@ -61,7 +61,7 @@ const memberSchema = z.object({
   tenantId: z.string().uuid(),
   email: z.string().trim().toLowerCase().email("Correo no válido"),
   fullName: z.string().trim().max(120).optional(),
-  role: z.enum(["CLIENT_ADMIN", "HOST"]),
+  role: z.literal("CLIENT_ADMIN"),
 });
 
 /**
