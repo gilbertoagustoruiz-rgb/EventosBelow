@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, Download, ExternalLink, FileSpreadsheet, RefreshCw, ScanLine, Search } from "lucide-react";
 import { requireEvent } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
+import { withCheckinBy } from "@/lib/registrations";
 import { appUrl, brandStyle, formatDateTime, formatDayShort } from "@/lib/format";
 import { AssignmentForm } from "@/app/admin/promotores/form";
 import { updatePromoter } from "@/app/admin/promotores/actions";
@@ -44,8 +45,11 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
   const filterParams = [id, fecha, like, doc];
 
   const [regs, countRow, tenant] = await Promise.all([
-    query<Registration>(
-      `select * from registrations where ${where} order by created_at desc limit ${PAGE_SIZE} offset $5`,
+    query<Registration & { checked_in_by_label: string | null }>(
+      withCheckinBy(
+        `select * from registrations where ${where} order by created_at desc limit ${PAGE_SIZE} offset $5`,
+        "r.created_at desc",
+      ),
       [...filterParams, (page - 1) * PAGE_SIZE],
     ),
     queryOne<{ n: number }>(`select count(*) as n from registrations where ${where}`, filterParams),
@@ -228,8 +232,12 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
                     <td className="py-3 pr-4 whitespace-nowrap">
                       <StatusBadge status={r.status} />
                       {r.holder_checked_in_at && (
-                        <p className="mt-1 text-xs text-slate-500">{formatDateTime(r.holder_checked_in_at, event.timezone)}</p>
+                        <p className="mt-1 text-xs text-slate-500">Titular: {formatDateTime(r.holder_checked_in_at, event.timezone)}</p>
                       )}
+                      {r.companion_checked_in_at && (
+                        <p className="text-xs text-slate-500">Acompañante: {formatDateTime(r.companion_checked_in_at, event.timezone)}</p>
+                      )}
+                      {r.checked_in_by_label && <p className="text-xs text-slate-400">por {r.checked_in_by_label}</p>}
                     </td>
                     <td className="py-3 text-right whitespace-nowrap">
                       {r.status === "REGISTRADO" && !r.companion_checked_in_at && (

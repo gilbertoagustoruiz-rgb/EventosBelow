@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import { requireEvent } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { withCheckinBy } from "@/lib/registrations";
 import { formatDateTime, formatTime } from "@/lib/format";
 import { slugify } from "@/lib/validation";
 import type { EventDate, Registration } from "@/lib/types";
@@ -24,8 +25,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   const dates = await query<EventDate>("select * from event_dates where event_id = $1", [id]);
   const dateById = new Map(dates.map((d) => [d.id, d]));
-  const rows = await query<Registration>(
-    `select * from registrations where event_id = $1 and ($2::uuid is null or event_date_id = $2) order by created_at`,
+  const rows = await query<Registration & { checked_in_by_label: string | null }>(
+    withCheckinBy(
+      `select * from registrations where event_id = $1 and ($2::uuid is null or event_date_id = $2)`,
+      "r.created_at",
+    ),
     [id, dateFilter],
   );
 
@@ -48,6 +52,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     { header: "Estado", key: "status", width: 12 },
     { header: "Ingreso titular", key: "holder_in", width: 17 },
     { header: "Ingreso acompañante", key: "companion_in", width: 19 },
+    { header: "Acreditado por", key: "checked_in_by", width: 24 },
     { header: "Fecha de registro", key: "created", width: 17 },
   ] as const;
 
@@ -71,6 +76,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       status: STATUS[r.status],
       holder_in: r.holder_checked_in_at ? formatDateTime(r.holder_checked_in_at, tz) : "",
       companion_in: r.companion_checked_in_at ? formatDateTime(r.companion_checked_in_at, tz) : "",
+      checked_in_by: r.checked_in_by_label ?? "",
       created: formatDateTime(r.created_at, tz),
     };
   });

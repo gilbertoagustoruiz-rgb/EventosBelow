@@ -16,7 +16,10 @@ Plataforma web **multi-tenant** para registrar y acreditar asistentes a eventos 
 | Portal de registro | `/evento/[slug]` | Público |
 | Ticket con QR | `/evento/[slug]/ticket/[token]` | Asistente |
 | Acreditación (check-in) | `/acreditar/[enlace]` | Anfitriones, **sin login**, con el enlace secreto del evento |
+| Acreditación de promotor | `/promotor/[enlace]` | Cada promotor, **sin login**, con su enlace individual y revocable |
 | Acreditación con cuenta | `/checkin/[eventId]` | SuperAdmin y administradores del cliente |
+| Importar inscripciones | `/admin/eventos/[id]/importar` | Administradores: carga masiva desde Excel |
+| Promotores | `/admin/promotores` | Administradores: directorio de promotores por cliente |
 
 ### 1. Administración
 - **Clientes** (`/admin/clientes`): alta de empresas cliente (solo SuperAdmin) y de usuarios con rol *Administrador*. Los anfitriones acreditan con el enlace secreto del evento; el rol histórico `HOST` no habilita el acceso con cuenta. Al crear un usuario se muestra una **contraseña temporal** (una sola vez) que debe cambiar en su primer ingreso; también se puede generar una nueva si la olvida.
@@ -24,6 +27,9 @@ Plataforma web **multi-tenant** para registrar y acreditar asistentes a eventos 
 - **Fechas y aforo**: varias fechas por evento con horario, etiqueta y aforo; barra de ocupación; el aforo no puede bajar por debajo de los cupos ya ocupados.
 - **Registros**: búsqueda, filtro por fecha, paginación, cancelación (libera cupos).
 - **Exportación** a **Excel** (hoja de registros + hoja resumen por fecha) o **CSV** (UTF-8 con BOM, protegido contra inyección de fórmulas).
+
+- **Importación desde Excel** (.xlsx, hasta 2 000 filas): reconoce encabezados con variantes (`N° Documento`, `Nro. DNI`, `Nombres y Apellidos`, `Teléfono celular`…), muestra una vista previa fila por fila con el motivo de cada rechazo (correo inválido, DNI repetido, ya inscrito, acompañante no permitido) y guarda todo en una sola transacción. Funciona aunque el evento no esté publicado. Opcionalmente envía el ticket QR por correo a cada importado.
+- **Promotores**: directorio por cliente; se asignan a eventos y cada asignación tiene su propio enlace de acreditación, que se puede retirar o regenerar. Cada ingreso queda registrado con el promotor que lo hizo, y la lista de inscripciones y la exportación muestran **“Acreditado por”** (promotor, coordinador o enlace general).
 
 ### 2. Registro público
 - Tarjetas de fecha con **cupos restantes actualizados cada 15 s** y al volver a la pestaña. Las fechas agotadas, o con un solo cupo cuando hay acompañante, se deshabilitan.
@@ -58,10 +64,13 @@ users ──< tenant_members >── tenants ──< events ──< event_dates 
 | `events` | Branding (`logo_url`, `primary_color`), `slug` único, `companion_mode`, zona horaria, publicado/abierto |
 | `event_dates` | Día, hora inicio/fin, `capacity`, `registered_count` (cupos ocupados; `CHECK registered_count <= capacity`) |
 | `registrations` | Titular, acompañante, `token` único (lo que va en el QR), `seats` (1 o 2), estado `REGISTRADO / CHECKED_IN / CANCELADO`, hora de ingreso de titular y de acompañante, quién lo acreditó |
+| `promoters` / `event_promoters` | Directorio de promotores por cliente y su asignación a eventos, con enlace (`access_key`) revocable |
+| `promoter_checkins` | Auditoría: qué promotor acreditó a quién, qué (titular/acompañante/ambos) y cuándo |
+| `assets` | Logos guardados en la base cuando no hay Spaces |
 
 Funciones SQL (la lógica crítica vive en la base de datos):
 
-- `register_attendee(...)`: valida evento publicado, fecha vigente y reglas de acompañante; reserva cupos con un `UPDATE ... WHERE registered_count + seats <= capacity` e inserta el registro en la misma transacción. Errores: `SOLD_OUT`, `DUPLICATE`, `EVENT_CLOSED`, `DATE_PAST`, `COMPANION_REQUIRED`…
+- `register_attendee(..., p_admin)`: valida evento publicado, fecha vigente y reglas de acompañante; reserva cupos con un `UPDATE ... WHERE registered_count + seats <= capacity` e inserta el registro en la misma transacción. Errores: `SOLD_OUT`, `DUPLICATE`, `EVENT_CLOSED`, `DATE_PAST`, `COMPANION_REQUIRED`… Con `p_admin = true` (importación) no exige evento publicado/abierto ni fecha futura; aforo, duplicados y reglas de acompañante se mantienen.
 - `check_in(registration_id, event_date_id, target, user_id)`: `SELECT ... FOR UPDATE`; devuelve `OK / ALREADY / WRONG_DATE / CANCELLED / NOT_FOUND`.
 - `cancel_registration(id)`: cancela y devuelve los cupos.
 - Vista `event_date_stats` para los contadores del check-in.
@@ -191,21 +200,20 @@ npm run dev
 
 ## Verificación realizada
 
-Comprobaciones reproducibles: `npm test` (redirecciones y límites), `npm run typecheck` y `npm run build`. CI ejecuta las tres en cada PR hacia `main` y cada push a `main`. El correo tiene un tiempo máximo de espera de 10 segundos por envío; su fallo no anula la inscripción.
+Automática (CI en cada PR y push a `main`, con PostgreSQL 16 real):
+- `npm test`: redirecciones seguras del login, límites de intentos, validación Zod y exportación Excel.
+- `tests/import-db.test.mjs`: esquema, importación con token QR, duplicados, aforo con conexiones concurrentes y modo administrador (evento sin publicar).
+- `tests/promoters-db.test.mjs`: tablas, enlaces únicos y auditoría de promotores.
+- `tests/logo-colors.test.mjs`: extracción de colores del logo.
+- `npm run typecheck` y `npm run build`.
 
-Las pruebas de base de datos y navegador de la siguiente lista corresponden a verificaciones previas; requieren una base de datos configurada para repetirse.
-
-- Migración aplicada en PostgreSQL 16 con un usuario sin privilegios de superusuario (como `doadmin` en DigitalOcean). El migrador no repite migraciones ya aplicadas.
-- Funciones SQL: duplicado, aforo agotado, acompañante que ocupa 2 cupos, fecha incorrecta, doble ingreso. **Concurrencia:** 80 registros simultáneos sobre un aforo de 50 → exactamente 50 aceptados.
-- `tsc --noEmit` y `next build` sin errores.
-- En Chrome:
-  - Registro con acompañante → ticket → correo simulado.
-  - Login incorrecto y correcto.
-  - Alta de anfitrión con contraseña temporal → cambio obligatorio → check-in (válido → ingreso → “Ya ingresó”).
-  - El anfitrión no puede entrar a `/admin`.
-  - Un usuario de otro cliente recibe 404 en el evento y en la exportación.
-  - Creación de evento, fechas y aforo; exportación Excel.
-- No probado aquí: la subida real a Spaces (requiere credenciales).
+Manual en Chrome sobre una base con datos previos actualizada de la migración 0003 a la 0006:
+- Registro público con acompañante → ticket QR → duplicado rechazado.
+- Importación de un Excel con 6 filas en un evento sin publicar: 2 importadas con ticket por correo y 4 rechazadas con su motivo.
+- Promotor: alta → asignación → acreditación desde su enlace → “Acreditado por” en el panel y en el CSV.
+- Revocar con la consola abierta → “Enlace sin acceso” al seleccionar y al buscar.
+- Enlace general de acreditación sin login. Enlaces inexistentes responden 404.
+- Concurrencia: 80 registros simultáneos sobre un aforo de 50 → exactamente 50.
 
 ## Siguientes pasos sugeridos
 

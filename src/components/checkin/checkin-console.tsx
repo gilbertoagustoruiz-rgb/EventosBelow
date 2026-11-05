@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import {
   AlertTriangle,
   Ban,
+  ShieldOff,
   CalendarX2,
   CheckCircle2,
   Loader2,
@@ -249,6 +250,11 @@ function ResultPanel({
         },
         CANCELLED: { icon: <Ban />, title: "Registro cancelado", subtitle: "No tiene acceso" },
         NOT_FOUND: { icon: <SearchX />, title: "No encontrado", subtitle: "El código no pertenece a este evento" },
+        NO_ACCESS: {
+          icon: <ShieldOff />,
+          title: "Enlace sin acceso",
+          subtitle: "Este enlace de acreditación fue revocado. Pide uno nuevo al coordinador del evento.",
+        },
       }[state];
 
   const holderPending = person && !person.holderCheckedInAt;
@@ -406,6 +412,7 @@ function SearchPanel({
   const [items, setItems] = useState<CheckinPerson[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchError, setSearchError] = useState(false);
+  const [noAccess, setNoAccess] = useState(false);
   const reqId = useRef(0);
 
   useEffect(() => {
@@ -422,7 +429,8 @@ function SearchPanel({
       try {
       const res = await searchRegistrations({ eventId, key: accessKey, q: term });
       if (id === reqId.current) {
-        setItems(res);
+        setNoAccess(res === null);
+        setItems(res ?? []);
         setLoading(false);
       }
       } catch { if (id === reqId.current) { setSearchError(true); setLoading(false); } }
@@ -449,9 +457,19 @@ function SearchPanel({
         {loading && <Loader2 className="absolute right-3.5 top-1/2 size-5 -translate-y-1/2 animate-spin text-slate-400" />}
       </div>
       <p id="checkin-search-help" className="text-xs text-slate-400">Escribe al menos 2 caracteres del nombre, documento o correo del titular o acompañante.</p>
-      <p role="status" className="text-sm text-slate-300">{loading ? "Buscando asistentes…" : searchError ? "No se pudo buscar. Revisa tu conexión y vuelve a escribir para intentarlo otra vez." : q.trim().length >= 2 && items.length ? `${items.length} coincidencias. Selecciona una para verificar el ingreso.` : ""}</p>
+      <p role="status" className="text-sm text-slate-300">{loading ? "Buscando asistentes…" : noAccess ? "" : searchError ? "No se pudo buscar. Revisa tu conexión y vuelve a escribir para intentarlo otra vez." : q.trim().length >= 2 && items.length ? `${items.length} coincidencias. Selecciona una para verificar el ingreso.` : ""}</p>
 
-      {q.trim().length >= 2 && !loading && !searchError && items.length === 0 && (
+      {noAccess && !loading && (
+        <div role="alert" className="flex gap-3 rounded-xl bg-red-600 p-4 text-white">
+          <ShieldOff className="mt-0.5 size-6 shrink-0" />
+          <div>
+            <p className="font-semibold">Enlace sin acceso</p>
+            <p className="text-sm text-white/85">Este enlace de acreditación fue revocado. Pide uno nuevo al coordinador del evento.</p>
+          </div>
+        </div>
+      )}
+
+      {q.trim().length >= 2 && !loading && !searchError && !noAccess && items.length === 0 && (
         <p className="py-8 text-center text-slate-400">Sin resultados para “{q.trim()}”.</p>
       )}
 

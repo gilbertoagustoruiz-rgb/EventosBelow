@@ -107,16 +107,21 @@ export async function requireEvent(eventId: string, level: "admin" | "host") {
 
 const CHECKIN_KEY = /^[a-f0-9]{32}$/;
 
+/** Consulta compartida: el enlace general del evento o el enlace activo de un promotor. */
+const KEY_MATCH = `(e.checkin_key = $2 or exists (
+  select 1 from event_promoters p join promoters pr on pr.id = p.promoter_id
+   where p.event_id = e.id and p.access_key = $2 and p.is_active and pr.is_active))`;
+
 /**
- * Acceso al check-in: con el enlace secreto del evento (sin sesión) o con sesión de anfitrión.
+ * Acceso al check-in: con un enlace secreto (general o de promotor, sin sesión) o con sesión de coordinador.
+ * Devuelve null si el enlace no existe o fue revocado, para que la consola lo informe claramente.
  * userId es null cuando se entra por enlace.
  */
-export async function authorizeCheckin(eventId: string, key?: string | null) {
+export async function checkinAccess(eventId: string, key?: string | null) {
   if (key) {
-    if (!CHECKIN_KEY.test(key) || !/^[0-9a-f-]{36}$/i.test(eventId)) notFound();
-    const event = await queryOne<EventRow>(`select e.* from events e where e.id = $1 and (e.checkin_key = $2 or exists (select 1 from event_promoters p where p.event_id=e.id and p.access_key=$2 and p.is_active and exists(select 1 from promoters pr where pr.id=p.promoter_id and pr.is_active)))`, [eventId, key]);
-    if (!event) notFound();
-    return { event, userId: null as string | null };
+    if (!CHECKIN_KEY.test(key) || !/^[0-9a-f-]{36}$/i.test(eventId)) return null;
+    const event = await queryOne<EventRow>(`select e.* from events e where e.id = $1 and ${KEY_MATCH}`, [eventId, key]);
+    return event ? { event, userId: null as string | null } : null;
   }
   const { viewer, event } = await requireEvent(eventId, "host");
   return { event, userId: viewer.userId as string | null };
@@ -125,5 +130,5 @@ export async function authorizeCheckin(eventId: string, key?: string | null) {
 /** Evento por su enlace de acreditación (o null). */
 export async function eventByCheckinKey(key: string) {
   if (!CHECKIN_KEY.test(key)) return null;
-  return queryOne<EventRow>(`select e.* from events e where e.checkin_key=$1 or exists (select 1 from event_promoters p where p.event_id=e.id and p.access_key=$1 and p.is_active and exists(select 1 from promoters pr where pr.id=p.promoter_id and pr.is_active))`, [key]);
+  return queryOne<EventRow>(`select e.* from events e where ${KEY_MATCH.replaceAll("$2", "$1")}`, [key]);
 }

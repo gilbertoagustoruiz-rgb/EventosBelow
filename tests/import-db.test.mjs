@@ -13,9 +13,11 @@ test("esquema de inscripciones y fechas disponible para importar",async()=>{
   assert.ok(c.rows.some(x=>x.column_name===name),name);
 });
 
-test("procedimiento de registro que genera token existe con 12 argumentos",async()=>{
- const r=await pool.query("select oid::regprocedure::text as signature,pronargs from pg_proc where proname='register_attendee'");
- assert.ok(r.rows.some(x=>x.pronargs===12),"register_attendee requiere 12 parámetros");
+test("procedimiento de registro: 12 argumentos públicos + modo administrador opcional",async()=>{
+ const r=await pool.query("select pronargs,pronargdefaults from pg_proc where proname='register_attendee'");
+ assert.equal(r.rows.length,1,"una sola versión de register_attendee");
+ assert.equal(r.rows[0].pronargs,13);
+ assert.equal(r.rows[0].pronargdefaults,1,"p_admin es opcional: las llamadas con 12 argumentos siguen funcionando");
 });
 
 test("transacciones con savepoints revierten registros de prueba sin tocar inscripciones",async()=>{
@@ -119,5 +121,19 @@ test("concurrencia real: mismo DNI simultáneo no duplica inscripciones ni cupos
   const d=await pool.query("select registered_count from event_dates where id=$1",[s.date]);
   assert.equal(r.rows[0].n,1);
   assert.equal(d.rows[0].registered_count,1);
+ }finally{await cleanup(s);}
+});
+
+test("importación del administrador: funciona con el evento sin publicar, el portal público no",async()=>{
+ const s=await seed(2);
+ try{
+  await pool.query("update events set is_published=false, registration_open=false where id=$1",[s.event]);
+  await assert.rejects(register(s.date,"11111111"),/EVENT_CLOSED/);
+  await pool.query("select out_token from register_attendee($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true)",[s.date,"Importada","imp@example.com","999999999","DNI","22222222",null,null,false,null,null,null]);
+  // El modo administrador respeta aforo, duplicados y reglas de acompañante
+  await assert.rejects(pool.query("select register_attendee($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true)",[s.date,"Duplicada","d@example.com","999999999","DNI","22222222",null,null,false,null,null,null]),/DUPLICATE/);
+  await assert.rejects(pool.query("select register_attendee($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true)",[s.date,"Con acomp","c@example.com","999999999","DNI","33333333",null,null,true,"Acomp","DNI","44444444"]),/COMPANION_NOT_ALLOWED/);
+  await pool.query("select register_attendee($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true)",[s.date,"Ultimo","u@example.com","999999999","DNI","55555555",null,null,false,null,null,null]);
+  await assert.rejects(pool.query("select register_attendee($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,true)",[s.date,"Sin cupo","x@example.com","999999999","DNI","66666666",null,null,false,null,null,null]),/SOLD_OUT/);
  }finally{await cleanup(s);}
 });

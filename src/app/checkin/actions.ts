@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { authorizeCheckin } from "@/lib/auth";
+import { checkinAccess } from "@/lib/auth";
 import { query, queryOne, transaction } from "@/lib/db";
 import type { Registration } from "@/lib/types";
 
@@ -11,7 +11,8 @@ export type LookupState =
   | "ALREADY_IN" //       rojo: todos ya ingresaron
   | "WRONG_DATE" //       rojo: registrado para otra fecha
   | "CANCELLED" //        rojo
-  | "NOT_FOUND"; //       rojo
+  | "NOT_FOUND" //        rojo
+  | "NO_ACCESS"; //       rojo: el enlace de acreditación fue revocado
 
 export interface CheckinPerson {
   id: string;
@@ -100,7 +101,7 @@ const lookupSchema = z.object({
 /** Valida un QR escaneado o un registro elegido en la búsqueda. No modifica nada. */
 export async function lookupRegistration(input: z.input<typeof lookupSchema>): Promise<LookupResult> {
   const { eventId, eventDateId, token, registrationId, key } = lookupSchema.parse(input);
-  await authorizeCheckin(eventId, key);
+  if (!(await checkinAccess(eventId, key))) return { state: "NO_ACCESS", person: null };
 
   let row: Row | null;
   if (registrationId) {
@@ -124,11 +125,12 @@ export async function lookupRegistration(input: z.input<typeof lookupSchema>): P
 const searchSchema = z.object({ eventId: z.string().uuid(), key: KEY, q: z.string().trim().min(2).max(80) });
 
 /** Búsqueda predictiva por DNI, nombre o correo (titular o acompañante) en todo el evento. */
-export async function searchRegistrations(input: z.input<typeof searchSchema>): Promise<CheckinPerson[]> {
+/** Devuelve null si el enlace de acreditación ya no tiene acceso (revocado). */
+export async function searchRegistrations(input: z.input<typeof searchSchema>): Promise<CheckinPerson[] | null> {
   const parsed = searchSchema.safeParse(input);
   if (!parsed.success) return [];
   const { eventId, q, key } = parsed.data;
-  await authorizeCheckin(eventId, key);
+  if (!(await checkinAccess(eventId, key))) return null;
 
   // Escapa comodines de LIKE; los valores van parametrizados
   const term = q.replace(/[\\%_]/g, (c) => "\\" + c).replace(/\s+/g, " ").trim();
@@ -160,7 +162,9 @@ const checkInSchema = z.object({
 /** Marca el ingreso. La función SQL bloquea la fila y evita doble ingreso aunque dos anfitriones escaneen a la vez. */
 export async function performCheckIn(input: z.input<typeof checkInSchema>): Promise<LookupResult> {
   const { eventId, eventDateId, registrationId, target, key } = checkInSchema.parse(input);
-  const { userId } = await authorizeCheckin(eventId, key);
+  const access = await checkinAccess(eventId, key);
+  if (!access) return { state: "NO_ACCESS", person: null };
+  const { userId } = access;
 
   // El registro debe pertenecer al evento autorizado
   const owns = await queryOne("select 1 from registrations where id = $1 and event_id = $2", [registrationId, eventId]);
@@ -180,11 +184,13 @@ export async function performCheckIn(input: z.input<typeof checkInSchema>): Prom
       }
       // Conserva compatibilidad con el enlace general del evento.
       const legacy=await client.query("select 1 from events where id=$1 and checkin_key=$2",[eventId,key]);
-      if(!legacy.rows.length)throw new Error("Enlace de acreditación revocado");
+      if (!legacy.rows.length) return { revoked: true as const };
     }
     const result=await client.query<{r:{result:string}}>("select check_in($1,$2,$3,$4) as r",[registrationId,eventDateId,target,userId]);
     return result.rows[0]??null;
   });
+  // Revocado entre la validación y el ingreso: no se marcó nada
+  if (res && "revoked" in res) return { state: "NO_ACCESS", person: null };
 
   const fresh = await lookupRegistration({ eventId, eventDateId, registrationId, key });
   return { ...fresh, justCheckedIn: res?.r.result === "OK" };
@@ -199,7 +205,7 @@ export interface DateStats {
 
 export async function getDateStats(eventId: string, eventDateId: string, key?: string): Promise<DateStats | null> {
   if (!/^[0-9a-f-]{36}$/i.test(eventDateId)) return null;
-  await authorizeCheckin(eventId, key);
+  if (!(await checkinAccess(eventId, key))) return null;
   const row = await queryOne<{ capacity: number; seats_taken: number; registrations: number; people_checked_in: number }>(
     `select capacity, seats_taken, registrations, people_checked_in
        from event_date_stats where event_date_id = $1 and event_id = $2`,
