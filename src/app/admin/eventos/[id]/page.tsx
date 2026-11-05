@@ -144,6 +144,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
             Inscripciones <span className="font-normal text-slate-500">({count})</span>
           </h2>
           <div className="flex gap-2">
+            <Link href={`/admin/eventos/${event.id}/importar`} className="btn-brand py-2"><FileSpreadsheet className="size-4"/> Importar Excel</Link>
             <a href={`/admin/eventos/${event.id}/exportar?formato=xlsx${exportQs}`} className="btn-ghost py-2">
               <FileSpreadsheet className="size-4" /> Excel
             </a>
