@@ -173,6 +173,11 @@ export async function performCheckIn(input: z.input<typeof checkInSchema>): Prom
     userId,
   ]);
 
+  if (res?.r.result === "OK" && key) {
+    await query(`insert into promoter_checkins (promoter_id, registration_id, target)
+      select id, $2, $3 from event_promoters where event_id=$4 and access_key=$1 and is_active`,
+      [key, registrationId, target, eventId]);
+  }
   const fresh = await lookupRegistration({ eventId, eventDateId, registrationId, key });
   return { ...fresh, justCheckedIn: res?.r.result === "OK" };
 }
