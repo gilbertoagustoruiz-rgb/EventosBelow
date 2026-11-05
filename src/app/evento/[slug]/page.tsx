@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { brandStyle } from "@/lib/format";
 import { getPublicDates, getPublicEvent } from "@/lib/public-events";
 import { EventHeader } from "@/components/registration/event-header";
+import { RecoverTicket } from "./recover-ticket";
 import { RegistrationForm } from "@/components/registration/registration-form";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,7 @@ export default async function PublicEventPage({ params }: Params) {
             <p className="py-6 text-center text-slate-600">Las inscripciones para este evento están cerradas.</p>
           )}
         </div>
+        <RecoverTicket slug={event.slug} />
         <p className="mt-6 text-center text-xs text-slate-400">Plataforma de registro · Eventos Below</p>
       </main>
     </div>
