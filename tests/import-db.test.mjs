@@ -43,3 +43,81 @@ test("dos transacciones simultáneas mantienen aislamiento en PostgreSQL",async(
   a.release();b.release();
  }
 });
+
+import ExcelJS from "exceljs";
+import { randomUUID } from "node:crypto";
+const suffix=()=>randomUUID().replaceAll("-","").slice(0,12);
+async function seed(capacity=3){
+ const code=suffix();
+ const tenant=(await pool.query("insert into tenants(name,slug) values($1,$2) returning id",["Prueba importación", "test-import-"+code])).rows[0].id;
+ const event=(await pool.query("insert into events(tenant_id,name,slug,is_published,registration_open) values($1,$2,$3,true,true) returning id",[tenant,"Evento prueba","test-event-"+code])).rows[0].id;
+ const date=(await pool.query("insert into event_dates(event_id,event_day,starts_at,ends_at,capacity) values($1,current_date+30,'10:00','18:00',$2) returning id",[event,capacity])).rows[0].id;
+ return {tenant,event,date};
+}
+async function cleanup(s){
+ await pool.query("delete from tenants where id=$1",[s.tenant]);
+}
+async function register(date,doc,client=pool){
+ return client.query("select out_registration_id,out_token from register_attendee($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",[date,"Asistente de Prueba","prueba@example.com","999999999","DNI",doc,null,null,false,null,null,null]);
+}
+test("Excel XLSX real: lectura de encabezados, importación y token QR en PostgreSQL",async()=>{
+ const s=await seed(4);
+ try{
+  const book=new ExcelJS.Workbook(),sheet=book.addWorksheet("Asistentes");
+  sheet.addRow(["Nombre completo","DNI","Correo","Celular"]);
+  sheet.addRow(["Persona Uno","12345678","uno@example.com","999999999"]);
+  sheet.addRow(["Persona Dos","87654321","dos@example.com","988888888"]);
+  const bytes=await book.xlsx.writeBuffer();
+  const loaded=new ExcelJS.Workbook();
+  await loaded.xlsx.load(bytes);
+  const records=loaded.worksheets[0];
+  assert.equal(records.getRow(1).getCell(2).text,"DNI");
+  for(let i=2;i<=3;i++){
+   const row=records.getRow(i);
+   await pool.query("select out_token from register_attendee($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",[
+    s.date,row.getCell(1).text,row.getCell(3).text,row.getCell(4).text,"DNI",row.getCell(2).text,null,null,false,null,null,null
+   ]);
+  }
+  const r=await pool.query("select document_number,token from registrations where event_date_id=$1 order by document_number",[s.date]);
+  assert.equal(r.rows.length,2);
+  assert.ok(r.rows.every(x=>/^[a-f0-9]{32}$/.test(x.token)));
+  const d=await pool.query("select registered_count from event_dates where id=$1",[s.date]);
+  assert.equal(d.rows[0].registered_count,2);
+ }finally{await cleanup(s);}
+});
+test("duplicados: dos altas con el mismo DNI generan una sola inscripción y un cupo",async()=>{
+ const s=await seed(3);
+ try{
+  await register(s.date,"12345678");
+  await assert.rejects(register(s.date,"12345678"),/DUPLICATE/);
+  const r=await pool.query("select count(*)::int n from registrations where event_date_id=$1",[s.date]);
+  const d=await pool.query("select registered_count from event_dates where id=$1",[s.date]);
+  assert.equal(r.rows[0].n,1);
+  assert.equal(d.rows[0].registered_count,1);
+ }finally{await cleanup(s);}
+});
+test("concurrencia real: dos conexiones disputan el último cupo, solo una confirma",async()=>{
+ const s=await seed(1);
+ try{
+  const results=await Promise.allSettled([register(s.date,"12345678"),register(s.date,"87654321")]);
+  assert.equal(results.filter(r=>r.status==="fulfilled").length,1);
+  assert.equal(results.filter(r=>r.status==="rejected").length,1);
+  assert.match(String(results.find(r=>r.status==="rejected").reason),/SOLD_OUT/);
+  const r=await pool.query("select count(*)::int n from registrations where event_date_id=$1",[s.date]);
+  const d=await pool.query("select registered_count from event_dates where id=$1",[s.date]);
+  assert.equal(r.rows[0].n,1);
+  assert.equal(d.rows[0].registered_count,1);
+ }finally{await cleanup(s);}
+});
+test("concurrencia real: mismo DNI simultáneo no duplica inscripciones ni cupos",async()=>{
+ const s=await seed(2);
+ try{
+  const results=await Promise.allSettled([register(s.date,"12345678"),register(s.date,"12345678")]);
+  assert.equal(results.filter(r=>r.status==="fulfilled").length,1);
+  assert.equal(results.filter(r=>r.status==="rejected").length,1);
+  const r=await pool.query("select count(*)::int n from registrations where event_date_id=$1",[s.date]);
+  const d=await pool.query("select registered_count from event_dates where id=$1",[s.date]);
+  assert.equal(r.rows[0].n,1);
+  assert.equal(d.rows[0].registered_count,1);
+ }finally{await cleanup(s);}
+});
