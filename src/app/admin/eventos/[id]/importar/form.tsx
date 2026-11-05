@@ -1,7 +1,8 @@
 "use client";
 
 import { startTransition, useActionState, useState } from "react";
-import { CheckCircle2, FileSpreadsheet, Loader2, Upload } from "lucide-react";
+import Link from "next/link";
+import { AlertCircle, CheckCircle2, FileSpreadsheet, Loader2, Upload, Users } from "lucide-react";
 import { commitImport, previewImport, type ImportResult } from "./actions";
 
 const initial: ImportResult = { ok: false, message: "", valid: 0, invalid: 0, updates: 0, imported: 0, preview: [] };
@@ -45,7 +46,7 @@ export function ImportForm({ eventId }: { eventId: string }) {
         {previewPending ? "Analizando…" : "Analizar Excel y mostrar vista previa"}
       </button>
 
-      {analyzed && !previewPending && preview.message && (
+      {analyzed && !committed && !previewPending && preview.message && (
         <div className="space-y-4">
           <p role="status" className={`rounded-xl p-3 text-sm ${preview.ok && !preview.message.startsWith("Atención") ? "bg-slate-50 text-slate-700" : "bg-amber-50 text-amber-800"}`}>
             {preview.message}
@@ -92,11 +93,11 @@ export function ImportForm({ eventId }: { eventId: string }) {
                   </tbody>
                 </table>
               </div>
-              {preview.valid > 0 && !committed && (
+              {preview.valid > 0 && (
                 <div className="flex flex-wrap items-center gap-4">
-                  <button type="button" className="btn-brand" disabled={commitPending} onClick={() => { setCommitted(true); submit(commitAction); }}>
-                    {commitPending ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-                    {commitPending ? "Cargando…" : `Cargar ${preview.valid} ${preview.valid === 1 ? "invitado" : "invitados"}`}
+                  <button type="button" className="btn-brand" onClick={() => { setCommitted(true); submit(commitAction); }}>
+                    <Upload className="size-4" />
+                    {`Cargar ${preview.valid} ${preview.valid === 1 ? "invitado" : "invitados"}`}
                   </button>
                 </div>
               )}
@@ -105,13 +106,35 @@ export function ImportForm({ eventId }: { eventId: string }) {
         </div>
       )}
 
+      {committed && (commitPending || !result.message) && (
+        <div role="status" className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm">
+          <Loader2 className="size-5 shrink-0 animate-spin text-slate-500" />
+          <div>
+            <p className="font-semibold">Cargando {preview.valid.toLocaleString("es-PE")} invitados…</p>
+            <p className="text-slate-500">Puede tardar unos segundos. No cierres esta página.</p>
+          </div>
+        </div>
+      )}
+
       {committed && !commitPending && result.message && (
-        <p role="status" className={`flex items-start gap-2 rounded-xl p-3 text-sm font-medium ${result.ok ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>
-          {result.ok && <CheckCircle2 className="mt-0.5 size-4 shrink-0" />}
-          <span>
-            {result.message}
-          </span>
-        </p>
+        result.ok ? (
+          <div role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <p className="flex items-center gap-2 text-lg font-semibold text-emerald-900">
+              <CheckCircle2 className="size-5" /> Base de invitados cargada
+            </p>
+            <p className="mt-1 text-sm text-emerald-800">{result.message}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link href={`/admin/eventos/${eventId}/invitados`} className="btn-brand"><Users className="size-4" /> Ver invitados</Link>
+              <Link href={`/admin/eventos/${eventId}`} className="btn-ghost">Volver al evento</Link>
+              <button type="button" className="btn-ghost" onClick={reset}>Cargar otro Excel</button>
+            </div>
+          </div>
+        ) : (
+          <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-800">
+            <p className="flex items-center gap-2 font-semibold"><AlertCircle className="size-4" /> {result.message}</p>
+            <button type="button" className="btn-ghost mt-3" onClick={() => setCommitted(false)}>Volver a la vista previa</button>
+          </div>
+        )
       )}
     </div>
   );
