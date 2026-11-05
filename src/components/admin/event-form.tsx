@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { saveEvent, type FormState } from "@/app/admin/actions";
 import { slugify } from "@/lib/validation";
 import { readableOn } from "@/lib/format";
+import { extractLogoPalette } from "@/lib/logo-colors";
 import type { EventRow } from "@/lib/types";
 import { FieldError, FormMessage, SubmitButton } from "./ui";
 
@@ -25,13 +26,52 @@ export function EventForm({ event, tenants }: Props) {
   const [slugTouched, setSlugTouched] = useState(Boolean(event));
   const [color, setColor] = useState(event?.primary_color ?? "#4f46e5");
   const [preview, setPreview] = useState<string | null>(event?.logo_url ?? null);
+  const [palette, setPalette] = useState<string[]>([]);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [logoMessage, setLogoMessage] = useState("");
+  const logoRequest = useRef(0);
+  useEffect(() => () => { if (preview?.startsWith("blob:")) URL.revokeObjectURL(preview); }, [preview]);
+  const validColor = /^#[0-9a-f]{6}$/i.test(color) ? color : "#4f46e5";
+  function chooseColor(value: string) {
+    logoRequest.current++;
+    setAnalyzing(false);
+    setColor(value);
+  }
+  async function selectLogo(file?: File) {
+    const request = ++logoRequest.current;
+    setPalette([]);
+    setLogoMessage("");
+    setAnalyzing(false);
+    if (!file) { setPreview(event?.logo_url ?? null); return; }
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type) || file.size > 2 * 1024 * 1024) {
+      setPreview(event?.logo_url ?? null);
+      setLogoMessage("Elige un logo PNG, JPG o WEBP de hasta 2 MB.");
+      return;
+    }
+    setPreview(URL.createObjectURL(file));
+    setAnalyzing(true);
+    try {
+      const colors = await extractLogoPalette(file);
+      if (request !== logoRequest.current) return;
+      setPalette(colors);
+      if (colors.length) {
+        setColor(colors[0]);
+        setLogoMessage("Aplicamos un color de tu logo. Puedes elegir otro tono o ajustarlo.");
+      } else setLogoMessage("No encontramos colores definidos. Elige el color de marca manualmente.");
+    } catch {
+      if (request === logoRequest.current) setLogoMessage("No pudimos leer los colores del logo. Puedes elegirlos manualmente.");
+    } finally {
+      if (request === logoRequest.current) setAnalyzing(false);
+    }
+  }
   const e = state.fieldErrors ?? {};
 
   return (
-    <form action={action} className="space-y-8">
+    <form action={action} onSubmit={(ev) => { if (analyzing) ev.preventDefault(); }} className="space-y-8">
       {event && <input type="hidden" name="eventId" value={event.id} />}
 
       <section className="grid gap-5 sm:grid-cols-2">
+        <div className="sm:col-span-2"><h2 className="text-lg font-semibold">Información del evento</h2><p className="mt-1 text-sm text-slate-500">Estos datos aparecerán en el portal de tus invitados.</p></div>
         <div className="sm:col-span-2">
           <label className="label" htmlFor="tenantId">Cliente</label>
           <select id="tenantId" name="tenantId" defaultValue={event?.tenant_id ?? tenants[0]?.id} className="input" disabled={Boolean(event)}>
@@ -90,20 +130,25 @@ export function EventForm({ event, tenants }: Props) {
 
       {/* Branding ------------------------------------------------------------------ */}
       <section className="space-y-4">
-        <h3 className="font-semibold">Branding</h3>
+        <h3 className="text-lg font-semibold">Imagen y colores de tu evento</h3>
         <div className="grid gap-5 sm:grid-cols-2">
           <div>
             <label className="label" htmlFor="primaryColor">Color primario</label>
             <div className="flex gap-2">
               <input
                 type="color"
-                value={color}
-                onChange={(ev) => setColor(ev.target.value)}
+                value={validColor}
+                onChange={(ev) => chooseColor(ev.target.value)}
                 className="h-[46px] w-14 cursor-pointer rounded-lg border border-slate-300 bg-white p-1"
                 aria-label="Selector de color"
               />
-              <input id="primaryColor" name="primaryColor" value={color} onChange={(ev) => setColor(ev.target.value)} className="input font-mono" />
+              <input id="primaryColor" name="primaryColor" value={color} onChange={(ev) => chooseColor(ev.target.value)} className="input font-mono" />
             </div>
+            <p className="mt-2 text-xs text-slate-500">Al subir el logo, adaptamos el color del portal, los botones y el ticket.</p>
+            {palette.length > 0 && <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Colores del logo">
+              {palette.map((tone) => <button key={tone} type="button" onClick={() => chooseColor(tone)} aria-label={`Usar color ${tone}`} aria-pressed={color.toLowerCase() === tone} title={tone} className="size-9 rounded-full border border-slate-300 outline-offset-4 aria-pressed:ring-2 aria-pressed:ring-slate-900 aria-pressed:ring-offset-2" style={{ backgroundColor: tone }} />)}
+            </div>}
+            <p className="mt-2 text-sm text-slate-600" role="status">{analyzing ? "Obteniendo los colores del logo…" : logoMessage}</p>
             <FieldError error={e.primaryColor} />
           </div>
           <div>
@@ -114,10 +159,7 @@ export function EventForm({ event, tenants }: Props) {
               type="file"
               accept="image/png,image/jpeg,image/webp"
               className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium hover:file:bg-slate-200"
-              onChange={(ev) => {
-                const f = ev.target.files?.[0];
-                if (f) setPreview(URL.createObjectURL(f));
-              }}
+              onChange={(ev) => { void selectLogo(ev.target.files?.[0]); }}
             />
             <FieldError error={e.logo} />
             {event?.logo_url && (
@@ -130,13 +172,17 @@ export function EventForm({ event, tenants }: Props) {
 
         {/* Vista previa del encabezado público */}
         <div className="overflow-hidden rounded-xl border border-slate-200">
-          <div className="px-5 py-6" style={{ background: color, color: readableOn(/^#[0-9a-f]{6}$/i.test(color) ? color : "#4f46e5") }}>
+          <div className="px-5 py-6" style={{ background: validColor, color: readableOn(validColor) }}>
             {preview && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={preview} alt="" className="mb-3 h-9 w-auto max-w-[160px] rounded bg-white/95 object-contain p-1" />
             )}
             <p className="text-xl font-bold">{name || "Nombre del evento"}</p>
             <p className="text-sm opacity-80">Vista previa del portal de registro</p>
+          </div>
+          <div className="flex items-center justify-between bg-white px-5 py-4">
+            <p className="text-sm text-slate-500">Tu identidad, en cada inscripción</p>
+            <span className="rounded-lg px-4 py-2 text-sm font-semibold" style={{ background: validColor, color: readableOn(validColor) }}>Registrarme</span>
           </div>
         </div>
       </section>
@@ -158,7 +204,8 @@ export function EventForm({ event, tenants }: Props) {
       </section>
 
       <section className="space-y-3">
-        <h3 className="font-semibold">Publicación</h3>
+        <h3 className="text-lg font-semibold">Visibilidad e inscripciones</h3>
+        <p className="text-sm text-slate-500">Puedes guardar un borrador y publicarlo cuando hayas agregado sus fechas.</p>
         <label className="flex items-center gap-3 text-sm">
           <input type="checkbox" name="isPublished" defaultChecked={event?.is_published ?? false} className="size-4" />
           Publicado (el enlace público es accesible)
@@ -170,7 +217,7 @@ export function EventForm({ event, tenants }: Props) {
       </section>
 
       <div className="flex items-center gap-4 border-t border-slate-100 pt-6">
-        <SubmitButton>{event ? "Guardar cambios" : "Crear evento"}</SubmitButton>
+        <SubmitButton disabled={analyzing}>{event ? "Guardar cambios" : "Crear evento"}</SubmitButton>
         <FormMessage state={state} />
       </div>
     </form>

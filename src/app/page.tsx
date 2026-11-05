@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CalendarDays, MapPin, ArrowRight, LockKeyhole, Ticket } from "lucide-react";
 import { query } from "@/lib/db";
-import { formatDayShort } from "@/lib/format";
+import { brandStyle, formatDayShort } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -42,8 +42,8 @@ export default async function Home() {
       <div className="mx-auto max-w-5xl px-4 py-12 sm:px-8 sm:py-20">
         <div className="flex items-center justify-between gap-4">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-600">Eventos Below</p>
-          <Link href="/login" className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-indigo-700">
-            <LockKeyhole className="size-4" /> Acceso personal autorizado
+          <Link href="/login" className="btn-ghost">
+            <LockKeyhole className="size-4" /> Organizar eventos
           </Link>
         </div>
         <div className="mt-14 max-w-2xl">
@@ -55,6 +55,9 @@ export default async function Home() {
             Selecciona un evento, elige el día en que asistirás y completa tus datos. No necesitas crear una cuenta.
           </p>
         </div>
+        <ol className="mt-8 grid gap-3 sm:grid-cols-3" aria-label="Cómo inscribirte">
+          {["Encuentra tu evento", "Elige fecha y completa tus datos", "Guarda tu ticket QR"].map((label, i) => <li key={label} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm font-medium text-slate-700"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-indigo-50 text-indigo-700">{i + 1}</span>{label}</li>)}
+        </ol>
         <section className="mt-12" aria-labelledby="available-events">
           <h2 id="available-events" className="text-xl font-semibold text-slate-900">Eventos con inscripciones abiertas</h2>
           {events.length === 0 ? (
@@ -66,7 +69,7 @@ export default async function Home() {
           ) : (
             <div className="mt-5 grid gap-5 sm:grid-cols-2">
               {events.map((event) => (
-                <article key={event.id} className="card overflow-hidden">
+                <article key={event.id} style={brandStyle(event.primary_color)} className="card overflow-hidden transition hover:-translate-y-0.5 hover:shadow-lg">
                   <div className="h-1.5" style={{ backgroundColor: event.primary_color }} />
                   <div className="p-6">
                     <h3 className="text-xl font-bold text-slate-950">{event.name}</h3>

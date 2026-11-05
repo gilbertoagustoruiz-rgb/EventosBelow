@@ -70,7 +70,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href={`/checkin/${event.id}`} className="btn-ghost">
-              <ScanLine className="size-4" /> Check-in
+              <ScanLine className="size-4" /> Acreditar asistentes
             </Link>
             {event.is_published && (
               <a href={publicUrl} target="_blank" rel="noreferrer" className="btn-brand">
@@ -91,10 +91,15 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
         )}
       </div>
 
+      <nav aria-label="Secciones del evento" className="flex flex-wrap gap-2">
+        {[["fechas", "1. Fechas y cupos"], ["inscripciones", "2. Inscripciones"], ["configuracion", "3. Configuración"]].map(([anchor, label]) => <a key={anchor} href={`#${anchor}`} className="btn-ghost">{label}</a>)}
+      </nav>
+      {(!dates.length || !event.is_published) && <aside className="rounded-2xl border border-indigo-100 bg-indigo-50 p-5 text-sm text-indigo-900"><h2 className="font-semibold">Prepara tu evento para recibir inscripciones</h2><ul className="mt-2 space-y-1"><li>{dates.length ? "✓ Ya agregaste las fechas." : "1. Agrega al menos una fecha con sus cupos."}</li><li>{event.is_published ? "✓ El evento está publicado." : "2. Activa «Publicado» en Configuración cuando esté listo."}</li><li>3. Comparte el enlace de registro con tus invitados.</li></ul></aside>}
+
       {/* Enlace público --------------------------------------------------------------- */}
       <div className="card flex flex-wrap items-center gap-3 p-4">
         <span className="text-sm font-medium text-slate-700">Enlace de registro:</span>
-        <code className="min-w-0 flex-1 truncate rounded bg-slate-100 px-2 py-1 text-sm">{publicUrl}</code>
+        <code className="min-w-0 flex-1 break-all rounded bg-slate-100 px-2 py-1 text-sm">{publicUrl}</code>
         <CopyButton value={publicUrl} />
         {!event.is_published && <span className="text-xs font-medium text-amber-700">Aún no publicado</span>}
       </div>
@@ -105,7 +110,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
           <span className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
             <ScanLine className="size-4" /> Enlace de acreditación:
           </span>
-          <code className="min-w-0 flex-1 truncate rounded bg-slate-100 px-2 py-1 text-sm">{checkinUrl}</code>
+          <code className="min-w-0 flex-1 break-all rounded bg-slate-100 px-2 py-1 text-sm">{checkinUrl}</code>
           <CopyButton value={checkinUrl} />
           <a href={checkinUrl} target="_blank" rel="noreferrer" className="btn-ghost px-3 py-1.5">
             <ExternalLink className="size-4" /> Abrir
@@ -127,16 +132,16 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
       </div>
 
       {/* Fechas y aforo ------------------------------------------------------------- */}
-      <section className="card p-6">
+      <section id="fechas" className="card p-4 sm:p-6">
         <h2 className="mb-4 text-lg font-semibold">Fechas y aforo</h2>
         <DatesManager eventId={event.id} dates={dates} />
       </section>
 
       {/* Registros ------------------------------------------------------------------ */}
-      <section className="card p-6">
+      <section id="inscripciones" className="card p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">
-            Registros <span className="font-normal text-slate-400">({count})</span>
+            Inscripciones <span className="font-normal text-slate-500">({count})</span>
           </h2>
           <div className="flex gap-2">
             <a href={`/admin/eventos/${event.id}/exportar?formato=xlsx${exportQs}`} className="btn-ghost py-2">
@@ -151,18 +156,20 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
         <form className="mt-4 flex flex-wrap gap-2">
           <div className="relative min-w-56 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-            <input name="q" defaultValue={sp.q} placeholder="Buscar por nombre, correo o documento" className="input py-2 pl-9" />
+            <input name="q" aria-label="Buscar inscripciones por nombre, correo o documento" defaultValue={sp.q} placeholder="Nombre, correo o documento" className="input py-2 pl-9" />
           </div>
-          <select name="fecha" defaultValue={sp.fecha ?? ""} className="input w-auto py-2">
+          <select name="fecha" aria-label="Filtrar por fecha del evento" defaultValue={sp.fecha ?? ""} className="input w-full py-2 sm:w-auto">
             <option value="">Todas las fechas</option>
             {dates.map((d) => (
               <option key={d.id} value={d.id}>{formatDayShort(d.event_day)}{d.label ? ` · ${d.label}` : ""}</option>
             ))}
           </select>
           <button className="btn-dark py-2">Filtrar</button>
+          {(q || fecha) && <Link href={`/admin/eventos/${id}#inscripciones`} className="btn-ghost">Limpiar filtros</Link>}
         </form>
 
-        <div className="mt-4 overflow-x-auto">
+        <p className="mt-3 text-xs text-slate-500">En pantallas pequeñas, desliza la tabla para ver todos los datos.</p>
+        <div className="mt-4 overflow-x-auto" role="region" aria-label="Inscripciones del evento" tabIndex={0}>
           <table className="w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
@@ -220,7 +227,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
               })}
               {regs.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-500">No hay registros.</td>
+                  <td colSpan={7} className="py-8 text-center text-slate-500">{q || fecha ? "No encontramos inscripciones con estos filtros. Prueba con otro dato o limpia los filtros." : "Aún no hay inscripciones. Publica el evento y comparte su enlace de registro."}</td>
                 </tr>
               )}
             </tbody>
@@ -237,7 +244,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
       </section>
 
       {/* Configuración -------------------------------------------------------------- */}
-      <section className="card p-6 sm:p-8">
+      <section id="configuracion" className="card p-4 sm:p-8">
         <h2 className="mb-6 text-lg font-semibold">Configuración y branding</h2>
         <EventForm event={event} tenants={tenant ? [tenant] : []} />
       </section>

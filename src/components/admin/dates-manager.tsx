@@ -18,7 +18,8 @@ export function DatesManager({ eventId, dates }: { eventId: string; dates: Event
 
   return (
     <div className="space-y-6">
-      <div className="overflow-x-auto">
+      <p className="text-sm text-slate-600">Agrega cada día y horario del evento. El aforo cuenta personas, incluidos los acompañantes.</p>
+      <div className="overflow-x-auto" role="region" aria-label="Fechas y cupos del evento" tabIndex={0}>
         <table className="w-full text-sm">
           <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
@@ -59,7 +60,7 @@ export function DatesManager({ eventId, dates }: { eventId: string; dates: Event
                         <input type="hidden" name="eventId" value={eventId} />
                         <input type="hidden" name="dateId" value={d.id} />
                         <ConfirmButton message="¿Eliminar esta fecha?" className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600">
-                          <Trash2 className="size-4" />
+                          <Trash2 className="size-4" /><span className="sr-only">Eliminar fecha {formatDay(d.event_day)}</span>
                         </ConfirmButton>
                       </form>
                     )}

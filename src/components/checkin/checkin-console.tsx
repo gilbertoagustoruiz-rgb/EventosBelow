@@ -154,12 +154,13 @@ export function CheckinConsole({ eventId, accessKey, eventName, timezone, dates,
         )}
 
         {/* Selector de fecha activa */}
-        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1" role="tablist" aria-label="Fecha activa">
+        <p className="text-xs text-slate-400">1. Confirma la fecha · 2. Escanea o busca · 3. Registra el ingreso</p>
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1" role="group" aria-label="Fecha activa">
           {dates.map((d) => (
             <button
               key={d.id}
-              role="tab"
-              aria-selected={d.id === dateId}
+              aria-pressed={d.id === dateId}
+              disabled={busy}
               onClick={() => setDateId(d.id)}
               className={[
                 "shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
@@ -171,7 +172,7 @@ export function CheckinConsole({ eventId, accessKey, eventName, timezone, dates,
           ))}
         </div>
 
-        <div className="grid grid-cols-2 gap-1 rounded-xl bg-white/5 p-1">
+        <div className="grid grid-cols-2 gap-1 rounded-xl bg-white/5 p-1" inert={busy}>
           <ModeButton active={mode === "scan"} onClick={() => { setMode("scan"); clearResult(); }}>
             <ScanLine className="size-4" /> Escanear QR
           </ModeButton>
@@ -183,13 +184,14 @@ export function CheckinConsole({ eventId, accessKey, eventName, timezone, dates,
 
       <main className="flex-1 space-y-4 px-4 py-4">
         {error && (
-          <p className="flex items-center gap-2 rounded-xl bg-amber-500/15 p-3 text-sm text-amber-200">
+          <p role="alert" className="flex items-center gap-2 rounded-xl bg-amber-500/15 p-3 text-sm text-amber-200">
             <AlertTriangle className="size-4" /> {error}
           </p>
         )}
 
         {mode === "scan" && (
           <div className="relative">
+            <p className="mb-3 text-center text-sm text-slate-400">Coloca el QR del ticket frente a la cámara. Si no puedes leerlo, usa «Buscar».</p>
             <QrScanner onScan={onScan} paused={busy || Boolean(result)} />
             {busy && !result && (
               <div className="absolute inset-0 grid place-items-center">
@@ -267,7 +269,7 @@ function ResultPanel({
           <h2 className="text-2xl font-bold leading-tight">{view.title}</h2>
           <p className="text-white/85">{view.subtitle}</p>
         </div>
-        <button onClick={onClose} aria-label="Cerrar" className="rounded-full p-1.5 hover:bg-white/15">
+        <button onClick={onClose} disabled={busy} aria-label="Cerrar resultado" className="grid size-11 place-items-center rounded-full hover:bg-white/15 disabled:opacity-50">
           <X className="size-5" />
         </button>
       </div>
@@ -318,7 +320,7 @@ function ResultPanel({
       {!canAct && (
         <div className="p-4">
           <button onClick={onClose} className="btn w-full bg-white/15 py-3 text-white hover:bg-white/25">
-            {justCheckedIn ? "Siguiente" : "Continuar"}
+            {justCheckedIn ? "Acreditar a otra persona" : "Volver a buscar o escanear"}
           </button>
         </div>
       )}
@@ -403,32 +405,40 @@ function SearchPanel({
   const [q, setQ] = useState("");
   const [items, setItems] = useState<CheckinPerson[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const reqId = useRef(0);
 
   useEffect(() => {
     const term = q.trim();
+    const id = ++reqId.current;
+    setItems([]);
+    setSearchError(false);
     if (term.length < 2) {
-      setItems([]);
+      setLoading(false);
       return;
     }
-    const id = ++reqId.current;
     setLoading(true);
     const t = setTimeout(async () => {
-      const res = await searchRegistrations({ eventId, key: accessKey, q: term }).catch(() => []);
+      try {
+      const res = await searchRegistrations({ eventId, key: accessKey, q: term });
       if (id === reqId.current) {
         setItems(res);
         setLoading(false);
       }
+      } catch { if (id === reqId.current) { setSearchError(true); setLoading(false); } }
     }, 250);
-    return () => clearTimeout(t);
+    return () => { clearTimeout(t); reqId.current++; };
   }, [q, eventId, accessKey]);
 
   return (
     <div className="space-y-3">
+      <label htmlFor="checkin-search" className="block text-sm font-medium text-slate-300">Encuentra al asistente</label>
       <div className="relative">
         <Search className="pointer-events-none absolute left-3.5 top-1/2 size-5 -translate-y-1/2 text-slate-400" />
         <input
           autoFocus
+          id="checkin-search"
+          aria-describedby="checkin-search-help"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="DNI, nombre o correo…"
@@ -438,8 +448,10 @@ function SearchPanel({
         />
         {loading && <Loader2 className="absolute right-3.5 top-1/2 size-5 -translate-y-1/2 animate-spin text-slate-400" />}
       </div>
+      <p id="checkin-search-help" className="text-xs text-slate-400">Escribe al menos 2 caracteres del nombre, documento o correo del titular o acompañante.</p>
+      <p role="status" className="text-sm text-slate-300">{loading ? "Buscando asistentes…" : searchError ? "No se pudo buscar. Revisa tu conexión y vuelve a escribir para intentarlo otra vez." : q.trim().length >= 2 && items.length ? `${items.length} coincidencias. Selecciona una para verificar el ingreso.` : ""}</p>
 
-      {q.trim().length >= 2 && !loading && items.length === 0 && (
+      {q.trim().length >= 2 && !loading && !searchError && items.length === 0 && (
         <p className="py-8 text-center text-slate-400">Sin resultados para “{q.trim()}”.</p>
       )}
 
@@ -489,6 +501,7 @@ function ModeButton({ active, onClick, children }: { active: boolean; onClick: (
   return (
     <button
       onClick={onClick}
+      aria-pressed={active}
       className={[
         "flex items-center justify-center gap-2 rounded-lg py-2 text-sm font-semibold transition",
         active ? "bg-white text-slate-900" : "text-slate-300 hover:text-white",

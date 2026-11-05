@@ -44,8 +44,9 @@ export default async function AdminHome() {
     <>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Eventos</h1>
-          <p className="text-slate-600">Proyectos de tus clientes, con sus fechas y aforo.</p>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-indigo-600">Tu espacio de trabajo</p>
+          <h1 className="text-3xl font-bold tracking-tight">Mis eventos</h1>
+          <p className="mt-2 text-slate-600">Organiza las fechas, comparte inscripciones y acompaña a tus asistentes.</p>
         </div>
         {canCreate && (
           <Link href="/admin/eventos/nuevo" className="btn-dark">
@@ -53,6 +54,16 @@ export default async function AdminHome() {
           </Link>
         )}
       </div>
+
+      <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Resumen de tus eventos">
+        {[
+          ["Eventos creados", events.length],
+          ["Inscripciones abiertas", events.filter((e) => e.is_published && e.registration_open).length],
+          ["Cupos ocupados", events.reduce((sum, e) => sum + e.taken, 0)],
+          ["Cupos disponibles", events.reduce((sum, e) => sum + Math.max(0, e.capacity - e.taken), 0)],
+        ].map(([label, value]) => <div key={label} className="card p-4 sm:p-5"><p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">{value}</p></div>)}
+      </div>
+      <p className="mt-3 text-xs text-slate-500">Totales de todas las fechas configuradas. Un acompañante también ocupa un cupo.</p>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {events.map((e) => {
@@ -81,7 +92,7 @@ export default async function AdminHome() {
                 <div className="mt-4 flex items-center justify-between text-sm">
                   <span className="tabular-nums text-slate-700">
                     <strong>{taken}</strong>
-                    <span className="text-slate-400">/{cap} inscritos</span>
+                    <span className="text-slate-500"> / {cap} cupos ocupados</span>
                   </span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -91,12 +102,14 @@ export default async function AdminHome() {
                     {!e.is_published ? "Borrador" : e.registration_open ? "Abierto" : "Cerrado"}
                   </span>
                 </div>
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full" style={{ width: `${cap ? Math.min(100, taken / cap * 100) : 0}%`, background: e.primary_color }} /></div>
+                <p className="mt-4 text-sm font-semibold text-indigo-700">Gestionar evento →</p>
               </div>
             </Link>
           );
         })}
         {events.length === 0 && (
-          <div className="card col-span-full p-10 text-center text-slate-500">Aún no hay eventos.</div>
+          <div className="card col-span-full p-10 text-center"><CalendarDays className="mx-auto size-10 text-indigo-400" /><h2 className="mt-4 text-lg font-semibold">Tu próximo evento empieza aquí</h2><p className="mx-auto mt-2 max-w-md text-sm text-slate-500">Crea un evento, agrega sus fechas y comparte el enlace para recibir inscripciones.</p>{canCreate && <Link href="/admin/eventos/nuevo" className="btn-dark mt-5"><Plus className="size-4" /> Crear mi primer evento</Link>}</div>
         )}
       </div>
     </>
