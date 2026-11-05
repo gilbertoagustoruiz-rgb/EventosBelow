@@ -52,3 +52,17 @@ export function pgCode(err: unknown): string | undefined {
 export function pgMessage(err: unknown): string {
   return (err as { message?: string } | null)?.message ?? "";
 }
+
+/** Ejecuta operaciones relacionadas en una única transacción PostgreSQL. */
+export async function transaction<T>(work:(client:pg.PoolClient)=>Promise<T>):Promise<T>{
+ const client=await pool().connect();
+ try{
+  await client.query("BEGIN");
+  const result=await work(client);
+  await client.query("COMMIT");
+  return result;
+ }catch(error){
+  try{await client.query("ROLLBACK");}catch{}
+  throw error;
+ }finally{client.release();}
+}
