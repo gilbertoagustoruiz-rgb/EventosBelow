@@ -29,16 +29,17 @@ export default async function InviteesPage({
   );
   const rows = await query<{
     id: string; full_name: string; document_type: string; document_number: string; employee_code: string | null;
-    email: string | null; company: string | null; event_day: string | null; status: string | null;
+    email: string | null; company: string | null; event_day: string | null; status: string | null; assigned_day: string | null;
   }>(
     `select i.id, i.full_name, i.document_type, i.document_number, i.employee_code, i.email, i.company,
-            d.event_day::text, r.status
+            d.event_day::text, r.status, ad.event_day::text as assigned_day
        from invitees i
        left join lateral (
          select r.event_date_id, r.status from registrations r
           where r.invitee_id = i.id and r.status <> 'CANCELADO' order by r.created_at desc limit 1
        ) r on true
        left join event_dates d on d.id = r.event_date_id
+       left join event_dates ad on ad.id = i.event_date_id
       where i.event_id = $1
         and ($2 = '' or i.full_name ilike '%' || $2 || '%' or i.document_number ilike $2 || '%'
              or i.employee_code ilike $2 || '%' or i.email ilike '%' || $2 || '%')
@@ -82,6 +83,7 @@ export default async function InviteesPage({
                 <th className="p-3">Nombre</th>
                 <th className="p-3">Documento</th>
                 <th className="p-3">Código</th>
+                <th className="p-3">Fecha asignada</th>
                 <th className="p-3">Correo</th>
                 <th className="p-3">Confirmación</th>
                 <th className="p-3" />
@@ -93,6 +95,7 @@ export default async function InviteesPage({
                   <td className="p-3 font-medium">{r.full_name}{r.company && <span className="block text-xs font-normal text-slate-500">{r.company}</span>}</td>
                   <td className="p-3">{r.document_type} {r.document_number}</td>
                   <td className="p-3">{r.employee_code ?? "—"}</td>
+                  <td className="p-3 whitespace-nowrap">{r.assigned_day ? formatDayShort(r.assigned_day) : <span className="text-slate-400">Libre</span>}</td>
                   <td className="p-3">{r.email ?? <span className="text-slate-400">Sin correo</span>}</td>
                   <td className="p-3">
                     {r.event_day ? (
@@ -111,7 +114,7 @@ export default async function InviteesPage({
                 </tr>
               ))}
               {rows.length === 0 && (
-                <tr><td colSpan={6} className="p-8 text-center text-slate-500">{term ? "Sin resultados." : "Aún no hay invitados. Carga un Excel o agrégalos uno a uno."}</td></tr>
+                <tr><td colSpan={7} className="p-8 text-center text-slate-500">{term ? "Sin resultados." : "Aún no hay invitados. Carga un Excel o agrégalos uno a uno."}</td></tr>
               )}
             </tbody>
           </table>

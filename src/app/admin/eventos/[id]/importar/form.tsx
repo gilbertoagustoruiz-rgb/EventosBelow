@@ -35,8 +35,9 @@ export function ImportForm({ eventId }: { eventId: string }) {
 
       <p className="text-sm text-slate-600">
         La primera fila debe tener los encabezados. Obligatorios: <b>Nombre</b> y <b>DNI/Documento</b>. Opcionales:{" "}
-        <b>Código de vendedor</b>, Tipo de documento, Correo, Celular, Empresa y Cargo. Si el documento ya está en la base, se
-        actualizan sus datos. Sin correo, el invitado lo ingresará al confirmar.
+        <b>Código</b> (vendedor, Id RH…), <b>Fecha de asistencia</b>, Tipo de documento, Correo, Celular, Empresa y Cargo. Si el
+        documento ya está en la base, se actualizan sus datos. Con fecha de asistencia, el invitado solo confirma esa fecha;
+        sin correo, lo ingresará al confirmar.
       </p>
 
       <button type="button" disabled={!file || previewPending} className="btn-dark" onClick={() => { setAnalyzed(true); setCommitted(false); submit(previewAction); }}>
@@ -51,6 +52,21 @@ export function ImportForm({ eventId }: { eventId: string }) {
           </p>
           {preview.ok && (
             <>
+              {preview.columns && (
+                <div className="rounded-xl border border-slate-200 p-3 text-sm">
+                  <p className="font-medium text-slate-700">Columnas reconocidas</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {preview.columns.used.map((c) => (
+                      <span key={c.field} className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-800">
+                        {c.field} ← «{c.header}»
+                      </span>
+                    ))}
+                  </div>
+                  {preview.columns.ignored.length > 0 && (
+                    <p className="mt-2 text-xs text-amber-700">No se usan: {preview.columns.ignored.map((h) => `«${h}»`).join(", ")}</p>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-3 text-center text-sm">
                 <Stat label="Nuevos" value={preview.valid - preview.updates} tone="text-emerald-700" />
                 <Stat label="Actualizan datos" value={preview.updates} tone="text-slate-600" />
@@ -59,7 +75,7 @@ export function ImportForm({ eventId }: { eventId: string }) {
               <div className="max-h-80 overflow-auto rounded-xl border border-slate-200">
                 <table className="w-full text-left text-xs">
                   <thead className="sticky top-0 bg-slate-50 text-slate-500">
-                    <tr><th className="p-2">Fila</th><th className="p-2">Nombre</th><th className="p-2">Documento</th><th className="p-2">Código</th><th className="p-2">Correo</th><th className="p-2">Resultado</th></tr>
+                    <tr><th className="p-2">Fila</th><th className="p-2">Nombre</th><th className="p-2">Documento</th><th className="p-2">Código</th><th className="p-2">Fecha</th><th className="p-2">Correo</th><th className="p-2">Resultado</th></tr>
                   </thead>
                   <tbody>
                     {preview.preview.map((r) => (
@@ -68,6 +84,7 @@ export function ImportForm({ eventId }: { eventId: string }) {
                         <td className="p-2">{r.name}</td>
                         <td className="p-2">{r.documentType} {r.document}</td>
                         <td className="p-2">{r.code || "—"}</td>
+                        <td className="p-2 whitespace-nowrap">{r.dateText || "—"}</td>
                         <td className="p-2">{r.email || "—"}</td>
                         <td className={`p-2 ${r.errors.length ? "text-red-600" : "text-emerald-700"}`}>{r.errors.join("; ") || (r.exists ? "Actualiza" : "Nuevo")}</td>
                       </tr>

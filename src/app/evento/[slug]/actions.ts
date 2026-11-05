@@ -27,6 +27,8 @@ export interface InviteePreview {
   maskedEmail: string | null;
   needsEmail: boolean;
   needsPhone: boolean;
+  /** Fecha asignada por el organizador (si la base la trae) */
+  assignedDateId: string | null;
 }
 
 export type LookupInviteeResult =
@@ -52,6 +54,7 @@ const DB_ERRORS: Record<string, string> = {
   COMPANION_REQUIRED: "Este evento requiere registrar al menos un acompañante.",
   COMPANION_IS_HOLDER: "Un acompañante no puede tener tu mismo documento.",
   COMPANION_DUPLICATE: "Hay acompañantes con el mismo documento.",
+  WRONG_DATE_ASSIGNED: "Tu invitación es para otra fecha. Confirma la fecha que te asignaron.",
 };
 
 const slugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
@@ -77,11 +80,12 @@ interface InviteeRow {
   company: string | null;
   email: string | null;
   phone: string | null;
+  event_date_id: string | null;
 }
 
 async function findInvitee(eventId: string, code: string) {
   return queryOne<InviteeRow>(
-    `select id, full_name, document_type, document_number, employee_code, company, email, phone
+    `select id, full_name, document_type, document_number, employee_code, company, email, phone, event_date_id
        from invitees
       where event_id = $1
         and (upper(document_number) = $2 or regexp_replace(upper(employee_code), '[[:space:].-]', '', 'g') = $2)
@@ -168,6 +172,7 @@ export async function lookupInvitee(slug: string, value: string): Promise<Lookup
       maskedEmail: inv.email ? maskEmail(inv.email) : null,
       needsEmail: !inv.email,
       needsPhone: !inv.phone,
+      assignedDateId: inv.event_date_id,
     },
   };
 }
@@ -195,7 +200,7 @@ export async function confirmRegistration(slug: string, input: ConfirmationInput
   );
   if (!ctx) return { ok: false, code: "DATE_NOT_FOUND", message: DB_ERRORS.DATE_NOT_FOUND };
   const inv = await queryOne<InviteeRow>(
-    `select id, full_name, document_type, document_number, employee_code, company, email, phone
+    `select id, full_name, document_type, document_number, employee_code, company, email, phone, event_date_id
        from invitees where id = $1 and event_id = $2`,
     [d.inviteeId, ctx.event_id],
   );

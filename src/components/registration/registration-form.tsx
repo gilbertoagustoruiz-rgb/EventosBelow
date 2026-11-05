@@ -94,6 +94,7 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
         const res = await lookupInvitee(slug, code);
         if (res.state === "FOUND") {
           setInvitee(res.invitee);
+          if (res.invitee.assignedDateId) setDateId(res.invitee.assignedDateId);
           setErrors({});
         } else if (res.state === "REGISTERED") {
           setAlready({ maskedEmail: res.maskedEmail, day: res.day });
@@ -218,11 +219,19 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
 
       {errorBox}
 
-      <Section number={1} title="¿Qué día asistirás?" icon={<CalendarDays className="size-4" />}>
+      <Section number={1} title={invitee.assignedDateId ? "Tu fecha de asistencia" : "¿Qué día asistirás?"} icon={<CalendarDays className="size-4" />}>
+        {invitee.assignedDateId && (
+          <p className="-mt-2 mb-3 text-sm text-slate-600">
+            {dates.some((d) => d.id === invitee.assignedDateId)
+              ? "El organizador te asignó esta fecha. Confírmala para recibir tu ticket."
+              : "Tu fecha asignada ya no está disponible. Comunícate con el organizador."}
+          </p>
+        )}
         <div role="group" aria-label="Días disponibles, selecciona uno" className="grid gap-3 sm:grid-cols-2">
           {dates.map((d) => {
             const left = remaining[d.id] ?? 0;
-            const disabled = left < seatsNeeded;
+            const notAssigned = Boolean(invitee.assignedDateId) && d.id !== invitee.assignedDateId;
+            const disabled = notAssigned || left < seatsNeeded;
             const selected = d.id === dateId;
             const low = left > 0 && left <= Math.max(5, d.capacity * 0.1);
             return (
@@ -250,7 +259,9 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
                   {formatTime(d.starts_at)} – {formatTime(d.ends_at)}
                 </p>
                 <p className={["mt-3 text-sm font-medium", left === 0 ? "text-red-600" : low ? "text-amber-600" : "text-emerald-700"].join(" ")}>
-                  {left === 0
+                  {notAssigned
+                    ? "No es tu fecha asignada"
+                    : left === 0
                     ? "Agotado"
                     : disabled
                       ? `Quedan ${left} cupos (no alcanza para ${seatsNeeded} personas)`

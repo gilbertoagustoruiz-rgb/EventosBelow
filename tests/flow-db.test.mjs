@@ -241,3 +241,19 @@ test("personal: coordinador por cliente; supervisores y promotores por evento", 
     await pool.query("delete from users where id = any($1)", [[user, supUser]]);
   }
 });
+
+test("fecha asignada en la base: el invitado solo confirma esa fecha", async () => {
+  const s = await seed();
+  try {
+    const inv = await invitee(s);
+    await pool.query("update invitees set event_date_id = $2 where id = $1", [inv.id, s.day2]);
+    await assert.rejects(register(s, s.day, inv), err(/WRONG_DATE_ASSIGNED/));
+    assert.equal(await taken(s.day), 0);
+    const ok = await register(s, s.day2, inv);
+    assert.ok(ok.out_token);
+    const r = await register(s, s.day, null, [], { admin: true, doc: inv.doc + "9".slice(0, 0) }).catch((e) => e);
+    assert.ok(r, "el administrador no queda limitado por la fecha asignada");
+  } finally {
+    await cleanup(s);
+  }
+});
