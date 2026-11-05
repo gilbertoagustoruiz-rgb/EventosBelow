@@ -3,6 +3,8 @@ import { ArrowLeft, Download, ExternalLink, FileSpreadsheet, RefreshCw, ScanLine
 import { requireEvent } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { appUrl, brandStyle, formatDateTime, formatDayShort } from "@/lib/format";
+import { AssignmentForm } from "@/app/admin/promotores/form";
+import { updatePromoter } from "@/app/admin/promotores/actions";
 import { EventForm } from "@/components/admin/event-form";
 import { DatesManager } from "@/components/admin/dates-manager";
 import { ConfirmButton, CopyButton } from "@/components/admin/ui";
@@ -50,6 +52,9 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
     queryOne<{ id: string; name: string }>("select id, name from tenants where id = $1", [event.tenant_id]),
   ]);
   const count = countRow?.n ?? 0;
+
+  const availablePromoters=await query<{id:string;full_name:string;document_number:string}>("select id,full_name,document_number from promoters where tenant_id=$1 and is_active order by full_name",[event.tenant_id]);
+  const assignedPromoters=await query<{id:string;full_name:string;is_active:boolean;access_key:string}>(`select ep.id,p.full_name,ep.is_active,ep.access_key from event_promoters ep join promoters p on p.id=ep.promoter_id where ep.event_id=$1 order by p.full_name`,[id]);
 
   const publicUrl = appUrl(`/evento/${event.slug}`);
   const checkinUrl = appUrl(`/acreditar/${event.checkin_key}`);
@@ -125,6 +130,18 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
           Si se filtra, regenéralo.
         </p>
       </div>
+
+      <section className="card space-y-4 p-6">
+        <div><h2 className="text-lg font-semibold">Promotores asignados al evento</h2><p className="text-sm text-slate-600">Selecciona promotores del directorio. Cada asignación tiene su propio enlace revocable.</p></div>
+        <AssignmentForm eventId={event.id} promoters={availablePromoters}/>
+        <div className="divide-y">{assignedPromoters.map(p=><div key={p.id} className="flex flex-wrap items-center gap-3 py-3 text-sm">
+          <span className="flex-1">{p.full_name} · {p.is_active?"Activo":"Inactivo"}</span>
+          {p.is_active&&<><CopyButton value={appUrl(`/promotor/${p.access_key}`)}/><a className="text-indigo-700 underline" target="_blank" rel="noreferrer" href={`/promotor/${p.access_key}`}>Abrir</a></>}
+          <form action={updatePromoter}><input type="hidden" name="id" value={p.id}/><button className="btn-ghost" name="operation" value={p.is_active?"disable":"enable"}>{p.is_active?"Retirar":"Reactivar"}</button></form>
+          <form action={updatePromoter}><input type="hidden" name="id" value={p.id}/><button className="btn-ghost" name="operation" value="rotate">Regenerar enlace</button></form>
+        </div>)}</div>
+        <Link className="text-sm text-indigo-700 underline" href="/admin/promotores">Crear nuevo promotor</Link>
+      </section>
 
       {/* Fechas y aforo ------------------------------------------------------------- */}
       <section className="card p-6">
