@@ -51,6 +51,9 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
     [user.id],
   );
 
+  // Un coordinador sin clientes asignados (o desactivado como empleado) no tiene acceso
+  if (!user.is_platform_admin && memberships.length === 0) return null;
+
   return {
     userId: user.id,
     email: user.email,
@@ -65,6 +68,13 @@ export async function requireViewer() {
   const viewer = await getViewer();
   if (!viewer) redirect("/login");
   if (viewer.mustChangePassword) redirect("/cuenta?primera=1");
+  return viewer;
+}
+
+/** Solo el administrador general (Below Trade): clientes, empleados, asignaciones y perfiles. */
+export async function requireAdmin() {
+  const viewer = await requireViewer();
+  if (!viewer.isPlatformAdmin) notFound();
   return viewer;
 }
 
@@ -109,8 +119,10 @@ const CHECKIN_KEY = /^[a-f0-9]{32}$/;
 
 /** Consulta compartida: el enlace general del evento o el enlace activo de un promotor. */
 const KEY_MATCH = `(e.checkin_key = $2 or exists (
-  select 1 from event_promoters p join promoters pr on pr.id = p.promoter_id
-   where p.event_id = e.id and p.access_key = $2 and p.is_active and pr.is_active))`;
+  select 1 from event_promoters p
+    join employees em on em.id = p.employee_id and em.is_active
+    join employee_clients ec on ec.employee_id = em.id and ec.tenant_id = e.tenant_id
+   where p.event_id = e.id and p.access_key = $2 and p.is_active))`;
 
 /**
  * Acceso al check-in: con un enlace secreto (general o de promotor, sin sesión) o con sesión de coordinador.

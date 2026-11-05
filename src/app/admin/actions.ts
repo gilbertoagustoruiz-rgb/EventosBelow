@@ -3,9 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { canAdminTenant, requireEvent, requireViewer } from "@/lib/auth";
+import { canAdminTenant, requireAdmin, requireEvent, requireViewer } from "@/lib/auth";
 import { pgCode, pgMessage, query, queryOne } from "@/lib/db";
-import { hashPassword, temporaryPassword } from "@/lib/password";
 import { saveAssetInDb, storageConfigured, uploadPublicFile } from "@/lib/storage";
 import { flattenErrors, hexColorSchema, slugSchema } from "@/lib/validation";
 
@@ -35,8 +34,7 @@ const tenantSchema = z.object({
 });
 
 export async function createTenant(_: FormState, fd: FormData): Promise<FormState> {
-  const viewer = await requireViewer();
-  if (!viewer.isPlatformAdmin) return { message: "No autorizado." };
+  await requireAdmin();
 
   const parsed = tenantSchema.safeParse(Object.fromEntries(fd));
   if (!parsed.success) return { fieldErrors: flattenErrors(parsed.error) };
@@ -54,83 +52,8 @@ export async function createTenant(_: FormState, fd: FormData): Promise<FormStat
   }
 
   revalidatePath("/admin/clientes");
-  return { ok: true, message: "Cliente creado." };
-}
-
-const memberSchema = z.object({
-  tenantId: z.string().uuid(),
-  email: z.string().trim().toLowerCase().email("Correo no válido"),
-  fullName: z.string().trim().max(120).optional(),
-  role: z.literal("CLIENT_ADMIN"),
-});
-
-/**
- * Da acceso a un usuario sobre un cliente. Si el correo no existe, crea el usuario
- * con una contraseña temporal que debe cambiar en su primer ingreso.
- */
-export async function addMember(_: FormState, fd: FormData): Promise<FormState> {
-  const viewer = await requireViewer();
-  const parsed = memberSchema.safeParse(Object.fromEntries(fd));
-  if (!parsed.success) return { fieldErrors: flattenErrors(parsed.error) };
-  const { tenantId, email, fullName, role } = parsed.data;
-  if (!canAdminTenant(viewer, tenantId)) return { message: "No autorizado." };
-
-  let user = await queryOne<{ id: string }>("select id from users where email = $1", [email]);
-  let tempPassword: string | undefined;
-  if (!user) {
-    tempPassword = temporaryPassword();
-    user = await queryOne<{ id: string }>(
-      `insert into users (email, full_name, password_hash, must_change_password)
-       values ($1, $2, $3, true) returning id`,
-      [email, fullName || null, await hashPassword(tempPassword)],
-    );
-  }
-
-  await query(
-    `insert into tenant_members (tenant_id, user_id, role) values ($1, $2, $3)
-     on conflict (tenant_id, user_id) do update set role = excluded.role`,
-    [tenantId, user!.id, role],
-  );
-
-  revalidatePath("/admin/clientes");
-  return tempPassword
-    ? { ok: true, message: `Usuario creado: ${email}`, tempPassword }
-    : { ok: true, message: `${email} ya tenía cuenta: se le dio acceso.` };
-}
-
-export async function removeMember(fd: FormData) {
-  const viewer = await requireViewer();
-  const tenantId = str(fd, "tenantId") ?? "";
-  const userId = str(fd, "userId") ?? "";
-  if (!UUID.test(tenantId) || !UUID.test(userId) || userId === viewer.userId) return;
-  if (!canAdminTenant(viewer, tenantId)) return;
-  await query("delete from tenant_members where tenant_id = $1 and user_id = $2", [tenantId, userId]);
-  revalidatePath("/admin/clientes");
-}
-
-/** Genera una nueva contraseña temporal para un miembro (p. ej. si la olvidó). */
-export async function resetMemberPassword(_: FormState, fd: FormData): Promise<FormState> {
-  const viewer = await requireViewer();
-  const tenantId = str(fd, "tenantId") ?? "";
-  const userId = str(fd, "userId") ?? "";
-  if (!UUID.test(tenantId) || !UUID.test(userId)) return { message: "Datos no válidos." };
-  if (!canAdminTenant(viewer, tenantId)) return { message: "No autorizado." };
-
-  // Solo usuarios de ese cliente, y un admin de cliente no puede tocar a un SuperAdmin
-  const target = await queryOne<{ email: string; is_platform_admin: boolean }>(
-    `select u.email, u.is_platform_admin from users u
-       join tenant_members m on m.user_id = u.id and m.tenant_id = $1
-      where u.id = $2`,
-    [tenantId, userId],
-  );
-  if (!target || (target.is_platform_admin && !viewer.isPlatformAdmin)) return { message: "No autorizado." };
-
-  const tempPassword = temporaryPassword();
-  await query(
-    `update users set password_hash = $2, must_change_password = true, password_changed_at = now() where id = $1`,
-    [userId, await hashPassword(tempPassword)],
-  );
-  return { ok: true, message: `Nueva contraseña temporal para ${target.email}`, tempPassword };
+  revalidatePath("/admin/asignaciones");
+  return { ok: true, message: "Cliente creado. Ahora asígnale coordinadores y promotores." };
 }
 
 // -------------------------------------------------------------------------------------

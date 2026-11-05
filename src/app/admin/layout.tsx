@@ -7,8 +7,8 @@ import { AdminNavigation } from "@/components/admin/navigation";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const viewer = await requireViewer();
-  // Los anfitriones solo acreditan: van directo al check-in
-  if (!viewer.isPlatformAdmin && !viewer.memberships.some((m) => m.role === "CLIENT_ADMIN")) redirect("/login");
+  // Solo administradores generales y coordinadores con clientes asignados
+  if (!viewer.isPlatformAdmin && viewer.memberships.length === 0) redirect("/login");
 
   return (
     <div className="min-h-dvh">
@@ -20,7 +20,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </Link>
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="hidden text-slate-500 sm:inline">{viewer.email}</span>
-            {viewer.isPlatformAdmin && <span className="hidden rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 sm:inline">Administrador general</span>}
+            <span className="hidden rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 sm:inline">{viewer.isPlatformAdmin ? "Administrador general" : "Coordinador"}</span>
             <Link href="/cuenta" className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-slate-600 hover:bg-slate-100" aria-label="Mi cuenta y contraseña">
               <KeyRound className="size-4" />
               <span className="hidden sm:inline">Mi cuenta</span>

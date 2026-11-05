@@ -17,7 +17,7 @@ export function withCheckinBy(inner: string, orderBy: string) {
       select p.full_name
         from promoter_checkins c
         join event_promoters ep on ep.id = c.promoter_id
-        join promoters p on p.id = ep.promoter_id
+        join employees p on p.id = ep.employee_id
        where c.registration_id = r.id
        order by c.checked_at desc
        limit 1

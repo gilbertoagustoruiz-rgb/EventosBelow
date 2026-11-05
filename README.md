@@ -8,28 +8,44 @@ Plataforma web **multi-tenant** para registrar y acreditar asistentes a eventos 
 
 ---
 
-## Módulos
+## Perfiles y módulos
 
-| Módulo | Ruta | Quién |
+| Perfil | Acceso | Qué hace |
 |---|---|---|
-| Panel de administración | `/admin` | SuperAdmin y administradores del cliente |
+| **Administrador general** (Below Trade) | Correo y contraseña | Crea **clientes**, **empleados** y **asignaciones**; ve **perfiles**; gestiona todos los eventos |
+| **Coordinador** | Correo y contraseña | Gestiona los eventos de los clientes que tiene asignados y **selecciona promotores** (de los asignados a ese cliente) para cada evento |
+| **Promotor** | Enlace personal por evento | Acredita asistentes; cada ingreso queda a su nombre |
+| Anfitrión con enlace general | Enlace del evento | Acredita asistentes (queda como “Enlace general”) |
+| Asistente | Público | Se inscribe, recibe y recupera su ticket QR |
+
+| Módulo | Ruta | Perfil |
+|---|---|---|
+| Eventos | `/admin` | Administrador (todos) · Coordinador (sus clientes) |
+| Clientes | `/admin/clientes` | Administrador |
+| Empleados | `/admin/empleados` | Administrador |
+| Asignaciones | `/admin/asignaciones` | Administrador |
+| Perfiles | `/admin/perfiles` | Administrador |
+| Importar inscripciones | `/admin/eventos/[id]/importar` | Administrador · Coordinador |
+| Acreditación con cuenta | `/checkin/[eventId]` | Administrador · Coordinador |
+| Acreditación de promotor | `/promotor/[enlace]` | Promotor (sin login) |
+| Acreditación general | `/acreditar/[enlace]` | Equipo de apoyo (sin login) |
 | Portal de registro | `/evento/[slug]` | Público |
 | Ticket con QR | `/evento/[slug]/ticket/[token]` | Asistente |
-| Acreditación (check-in) | `/acreditar/[enlace]` | Anfitriones, **sin login**, con el enlace secreto del evento |
-| Acreditación de promotor | `/promotor/[enlace]` | Cada promotor, **sin login**, con su enlace individual y revocable |
-| Acreditación con cuenta | `/checkin/[eventId]` | SuperAdmin y administradores del cliente |
-| Importar inscripciones | `/admin/eventos/[id]/importar` | Administradores: carga masiva desde Excel |
-| Promotores | `/admin/promotores` | Administradores: directorio de promotores por cliente |
+
+**Reglas de acceso**
+- Solo el administrador crea empleados. Al crear un administrador o coordinador se genera su usuario con una **contraseña temporal** (se muestra una vez y debe cambiarse al primer ingreso).
+- Un coordinador accede únicamente a los clientes que el administrador le asignó. Si se le desasigna o se le **desactiva**, pierde el acceso al instante, incluso con la sesión abierta.
+- En cada evento, el coordinador solo puede elegir promotores **activos y asignados al cliente** del evento. Si el administrador desactiva al promotor o lo quita del cliente, sus enlaces dejan de funcionar al instante (se conserva el registro de lo que ya acreditó).
 
 ### 1. Administración
-- **Clientes** (`/admin/clientes`): alta de empresas cliente (solo SuperAdmin) y de usuarios con rol *Administrador*. Los anfitriones acreditan con el enlace secreto del evento; el rol histórico `HOST` no habilita el acceso con cuenta. Al crear un usuario se muestra una **contraseña temporal** (una sola vez) que debe cambiar en su primer ingreso; también se puede generar una nueva si la olvida.
+- **Clientes, Empleados, Asignaciones y Perfiles**: solo el administrador general (ver arriba). Desde Empleados también se edita a cada persona, se la activa/desactiva y se genera una nueva contraseña temporal si la olvida.
 - **Eventos**: nombre, descripción, lugar, enlace (`slug`), **logo** y **color primario** con vista previa en vivo; modo de acompañante *Sin / Opcional / Obligatorio*; publicación e inscripciones abiertas/cerradas.
 - **Fechas y aforo**: varias fechas por evento con horario, etiqueta y aforo; barra de ocupación; el aforo no puede bajar por debajo de los cupos ya ocupados.
 - **Registros**: búsqueda, filtro por fecha, paginación, cancelación (libera cupos).
 - **Exportación** a **Excel** (hoja de registros + hoja resumen por fecha) o **CSV** (UTF-8 con BOM, protegido contra inyección de fórmulas).
 
 - **Importación desde Excel** (.xlsx, hasta 2 000 filas): reconoce encabezados con variantes (`N° Documento`, `Nro. DNI`, `Nombres y Apellidos`, `Teléfono celular`…), muestra una vista previa fila por fila con el motivo de cada rechazo (correo inválido, DNI repetido, ya inscrito, acompañante no permitido) y guarda todo en una sola transacción. Funciona aunque el evento no esté publicado. Opcionalmente envía el ticket QR por correo a cada importado.
-- **Promotores**: directorio por cliente; se asignan a eventos y cada asignación tiene su propio enlace de acreditación, que se puede retirar o regenerar. Cada ingreso queda registrado con el promotor que lo hizo, y la lista de inscripciones y la exportación muestran **“Acreditado por”** (promotor, coordinador o enlace general).
+- **Promotores del evento**: el coordinador selecciona promotores entre los asignados al cliente; cada uno recibe su propio enlace de acreditación, que se puede retirar o regenerar. Cada ingreso queda registrado con el promotor que lo hizo, y la lista de inscripciones y la exportación muestran **“Acreditado por”** (promotor, coordinador o enlace general).
 
 ### 2. Registro público
 - Tarjetas de fecha con **cupos restantes actualizados cada 15 s** y al volver a la pestaña. Las fechas agotadas, o con un solo cupo cuando hay acompañante, se deshabilitan.
@@ -60,11 +76,13 @@ users ──< tenant_members >── tenants ──< events ──< event_dates 
 |---|---|
 | `users` | Correo, nombre, contraseña (scrypt), `is_platform_admin` (SuperAdmin), `must_change_password` |
 | `tenants` | Empresa cliente: nombre, slug, RUC, contacto |
-| `tenant_members` | Usuario ↔ cliente con rol `CLIENT_ADMIN` o `HOST` |
+| `employees` | Directorio único del personal: perfil (`ADMINISTRADOR` / `COORDINADOR` / `PROMOTOR`), documento, correo, usuario de acceso, activo |
+| `employee_clients` | Asignación de empleados a clientes |
+| `tenant_members` | **Vista**: coordinadores activos asignados a cada cliente (de ahí salen los permisos) |
 | `events` | Branding (`logo_url`, `primary_color`), `slug` único, `companion_mode`, zona horaria, publicado/abierto |
 | `event_dates` | Día, hora inicio/fin, `capacity`, `registered_count` (cupos ocupados; `CHECK registered_count <= capacity`) |
 | `registrations` | Titular, acompañante, `token` único (lo que va en el QR), `seats` (1 o 2), estado `REGISTRADO / CHECKED_IN / CANCELADO`, hora de ingreso de titular y de acompañante, quién lo acreditó |
-| `promoters` / `event_promoters` | Directorio de promotores por cliente y su asignación a eventos, con enlace (`access_key`) revocable |
+| `event_promoters` | Promotores seleccionados en cada evento, con enlace (`access_key`) revocable |
 | `promoter_checkins` | Auditoría: qué promotor acreditó a quién, qué (titular/acompañante/ambos) y cuándo |
 | `assets` | Logos guardados en la base cuando no hay Spaces |
 
@@ -203,7 +221,7 @@ npm run dev
 Automática (CI en cada PR y push a `main`, con PostgreSQL 16 real):
 - `npm test`: redirecciones seguras del login, límites de intentos, validación Zod y exportación Excel.
 - `tests/import-db.test.mjs`: esquema, importación con token QR, duplicados, aforo con conexiones concurrentes y modo administrador (evento sin publicar).
-- `tests/promoters-db.test.mjs`: tablas, enlaces únicos y auditoría de promotores.
+- `tests/promoters-db.test.mjs`: directorio de empleados, permisos del coordinador según asignación y estado, promotores sin acceso al panel, enlaces y auditoría.
 - `tests/logo-colors.test.mjs`: extracción de colores del logo.
 - `npm run typecheck` y `npm run build`.
 

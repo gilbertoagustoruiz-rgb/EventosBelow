@@ -29,3 +29,15 @@ export async function hashPassword(password) {
   const hash = await promisify(scrypt)(password, salt, 64, { N: 16384, r: 8, p: 1 });
   return `scrypt$${salt.toString("base64url")}$${hash.toString("base64url")}`;
 }
+
+/** Registra (o reactiva) al usuario como empleado con perfil ADMINISTRADOR, si existe la tabla. */
+export async function registerAdminEmployee(db, userId, email, fullName) {
+  const { rows } = await db.query("select to_regclass('public.employees') is not null as ok");
+  if (!rows[0].ok) return;
+  await db.query(
+    `insert into employees (profile, full_name, email, user_id)
+     values ('ADMINISTRADOR', coalesce($3, $2), $2, $1)
+     on conflict (user_id) do update set profile = 'ADMINISTRADOR', is_active = true`,
+    [userId, email, fullName ?? null],
+  );
+}

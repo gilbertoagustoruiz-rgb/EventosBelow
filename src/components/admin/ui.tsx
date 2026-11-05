@@ -69,3 +69,19 @@ export function ConfirmButton({
     </button>
   );
 }
+
+/** Contraseña temporal recién generada: se muestra una sola vez para compartirla. */
+export function TempPassword({ message, password }: { message?: string; password: string }) {
+  return (
+    <div role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm">
+      <p className="font-medium text-amber-900">{message}</p>
+      <p className="mt-1 text-amber-800">
+        Comparte esta contraseña temporal; se le pedirá cambiarla al ingresar. No se volverá a mostrar.
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <code className="rounded bg-white px-2 py-1 font-mono text-base tracking-wider">{password}</code>
+        <CopyButton value={password} />
+      </div>
+    </div>
+  );
+}

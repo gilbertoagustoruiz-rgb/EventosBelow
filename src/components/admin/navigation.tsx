@@ -1,14 +1,22 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Building2, ScanLine, Users } from "lucide-react";
+import { Building2, CalendarDays, Network, ScanLine, ShieldCheck, Users } from "lucide-react";
 
+/** Menú según perfil: el administrador ve la configuración; el coordinador, solo eventos y acreditación. */
 export function AdminNavigation({ platformAdmin }: { platformAdmin: boolean }) {
   const pathname = usePathname();
+  const at = (prefix: string) => pathname.startsWith(prefix);
   const links = [
-    { href: "/admin", label: "Mis eventos", icon: CalendarDays, active: pathname === "/admin" || pathname.startsWith("/admin/eventos") },
-    { href: "/admin/clientes", label: platformAdmin ? "Clientes y equipo" : "Mi equipo", icon: Building2, active: pathname.startsWith("/admin/clientes") },
-    { href: "/admin/promotores", label: "Promotores", icon: Users, active: pathname.startsWith("/admin/promotores") },
+    { href: "/admin", label: platformAdmin ? "Eventos" : "Mis eventos", icon: CalendarDays, active: pathname === "/admin" || at("/admin/eventos") },
+    ...(platformAdmin
+      ? [
+          { href: "/admin/clientes", label: "Clientes", icon: Building2, active: at("/admin/clientes") },
+          { href: "/admin/empleados", label: "Empleados", icon: Users, active: at("/admin/empleados") },
+          { href: "/admin/asignaciones", label: "Asignaciones", icon: Network, active: at("/admin/asignaciones") },
+          { href: "/admin/perfiles", label: "Perfiles", icon: ShieldCheck, active: at("/admin/perfiles") },
+        ]
+      : []),
     { href: "/checkin", label: "Acreditar asistentes", icon: ScanLine, active: false },
   ];
   return <nav aria-label="Administración" className="flex gap-2 overflow-x-auto pb-1">

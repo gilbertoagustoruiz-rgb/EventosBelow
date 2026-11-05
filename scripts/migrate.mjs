@@ -5,7 +5,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { createPool, hashPassword } from "./db.mjs";
+import { createPool, hashPassword, registerAdminEmployee } from "./db.mjs";
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "db", "migrations");
 const pool = createPool();
@@ -47,12 +47,14 @@ try {
   if (email && password) {
     const { rows } = await client.query("select 1 from users where is_platform_admin limit 1");
     if (rows.length === 0) {
-      await client.query(
+      const { rows: [user] } = await client.query(
         `insert into users (email, password_hash, is_platform_admin, must_change_password)
          values ($1, $2, true, true)
-         on conflict (email) do update set is_platform_admin = true`,
+         on conflict (email) do update set is_platform_admin = true
+         returning id`,
         [email, await hashPassword(password)],
       );
+      await registerAdminEmployee(client, user.id, email);
       console.log(`SuperAdmin inicial creado: ${email}`);
     }
   }

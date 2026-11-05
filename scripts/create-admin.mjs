@@ -2,7 +2,7 @@
 // Crea (o actualiza) un SuperAdmin de la plataforma.
 // Uso:  npm run create-admin -- correo@empresa.com "Contraseña segura" "Nombre Apellido"
 // En App Platform: pestaña Console del componente web, y ejecutar el mismo comando.
-import { createPool, hashPassword } from "./db.mjs";
+import { createPool, hashPassword, registerAdminEmployee } from "./db.mjs";
 
 const [emailArg, password, fullName] = process.argv.slice(2);
 const email = emailArg?.trim().toLowerCase();
@@ -23,9 +23,10 @@ try {
        set password_hash = excluded.password_hash,
            is_platform_admin = true,
            full_name = coalesce(excluded.full_name, users.full_name)
-     returning (xmax = 0) as created`,
+     returning id, (xmax = 0) as created`,
     [email, fullName ?? null, passwordHash],
   );
+  await registerAdminEmployee(pool, rows[0].id, email, fullName);
   console.log(rows[0].created ? `SuperAdmin creado: ${email}` : `SuperAdmin actualizado: ${email}`);
 } finally {
   await pool.end();

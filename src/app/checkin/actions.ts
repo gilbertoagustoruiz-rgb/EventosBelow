@@ -173,10 +173,16 @@ export async function performCheckIn(input: z.input<typeof checkInSchema>): Prom
   // Acreditación y auditoría en una sola transacción: nunca confirmar sin registrar al promotor.
   const res = await transaction(async client => {
     if (key) {
-      const access = await client.query<{id:string}>(`select ep.id from event_promoters ep
-        join promoters p on p.id=ep.promoter_id
-        where ep.event_id=$1 and ep.access_key=$2 and ep.is_active and p.is_active
-        for update of ep,p`,[eventId,key]);
+      // Bloquea la asignación: si el administrador desactiva o desasigna al promotor a la vez, no se acredita
+      const access = await client.query<{ id: string }>(
+        `select ep.id from event_promoters ep
+           join events ev on ev.id = ep.event_id
+           join employees em on em.id = ep.employee_id and em.is_active
+           join employee_clients ec on ec.employee_id = em.id and ec.tenant_id = ev.tenant_id
+          where ep.event_id = $1 and ep.access_key = $2 and ep.is_active
+          for update of ep, em, ec`,
+        [eventId, key],
+      );
       if (access.rows.length) {
         const result=await client.query<{r:{result:string}}>("select check_in($1,$2,$3,$4) as r",[registrationId,eventDateId,target,userId]);
         if(result.rows[0]?.r.result==="OK")await client.query("insert into promoter_checkins(promoter_id,registration_id,target) values($1,$2,$3)",[access.rows[0].id,registrationId,target]);
