@@ -114,7 +114,7 @@ const CHECKIN_KEY = /^[a-f0-9]{32}$/;
 export async function authorizeCheckin(eventId: string, key?: string | null) {
   if (key) {
     if (!CHECKIN_KEY.test(key) || !/^[0-9a-f-]{36}$/i.test(eventId)) notFound();
-    const event = await queryOne<EventRow>(`select e.* from events e where e.id = $1 and (e.checkin_key = $2 or exists (select 1 from event_promoters p where p.event_id=e.id and p.access_key=$2 and p.is_active))`, [eventId, key]);
+    const event = await queryOne<EventRow>(`select e.* from events e where e.id = $1 and (e.checkin_key = $2 or exists (select 1 from event_promoters p where p.event_id=e.id and p.access_key=$2 and p.is_active and exists(select 1 from promoters pr where pr.id=p.promoter_id and pr.is_active)))`, [eventId, key]);
     if (!event) notFound();
     return { event, userId: null as string | null };
   }
@@ -125,5 +125,5 @@ export async function authorizeCheckin(eventId: string, key?: string | null) {
 /** Evento por su enlace de acreditación (o null). */
 export async function eventByCheckinKey(key: string) {
   if (!CHECKIN_KEY.test(key)) return null;
-  return queryOne<EventRow>(`select e.* from events e where e.checkin_key=$1 or exists (select 1 from event_promoters p where p.event_id=e.id and p.access_key=$1 and p.is_active)`, [key]);
+  return queryOne<EventRow>(`select e.* from events e where e.checkin_key=$1 or exists (select 1 from event_promoters p where p.event_id=e.id and p.access_key=$1 and p.is_active and exists(select 1 from promoters pr where pr.id=p.promoter_id and pr.is_active))`, [key]);
 }
