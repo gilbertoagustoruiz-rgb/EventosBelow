@@ -35,13 +35,17 @@ export async function login(_: LoginState, fd: FormData): Promise<LoginState> {
     return { error: "Demasiados intentos. Espera unos minutos e inténtalo otra vez." };
   }
 
-  const user = await queryOne<{ id: string; password_hash: string; must_change_password: boolean }>(
-    "select id, password_hash, must_change_password from users where email = $1 and is_active",
+  const user = await queryOne<{ id: string; password_hash: string; must_change_password: boolean; is_platform_admin: boolean }>(
+    "select id, password_hash, must_change_password, is_platform_admin from users where email = $1 and is_active",
     [email],
   );
   const ok = await verifyPassword(password, user?.password_hash ?? DUMMY_HASH);
 
-  if (!user || !ok) {
+  const authorized = user && (user.is_platform_admin || !!(await queryOne(
+    "select 1 from tenant_members where user_id = $1 and role = 'CLIENT_ADMIN' limit 1",
+    [user.id],
+  )));
+  if (!user || !ok || !authorized) {
     const prev = a && a.until > now ? a.count : 0;
     attempts.set(key, { count: prev + 1, until: now + WINDOW_MS });
     return { error: "Correo o contraseña incorrectos." };
@@ -88,5 +92,5 @@ export async function changePassword(_: PasswordState, fd: FormData): Promise<Pa
   // Las sesiones anteriores quedan invalidadas: emitimos una nueva para este dispositivo
   (await cookies()).set(SESSION_COOKIE, await signSession(viewer.userId), sessionCookieOptions);
 
-  redirect(viewer.isPlatformAdmin || viewer.memberships.some((m) => m.role === "CLIENT_ADMIN") ? "/admin" : "/checkin");
+  redirect("/admin");
 }
