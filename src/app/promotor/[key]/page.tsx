@@ -9,7 +9,7 @@ export const metadata:Metadata={title:"Promotor de Evento",robots:{index:false,f
 export default async function PromoterPage({params}:{params:Promise<{key:string}>}){
  const {key}=await params;
  if(!/^[a-f0-9]{32}$/.test(key))notFound();
- const p=await queryOne<{full_name:string;event_id:string}>("select full_name,event_id from event_promoters where access_key=$1 and is_active",[key]);
+ const p=await queryOne<{full_name:string;event_id:string}>("select ep.full_name,ep.event_id from event_promoters ep join promoters p on p.id=ep.promoter_id where ep.access_key=$1 and ep.is_active and p.is_active",[key]);
  if(!p)notFound();
  const event=await queryOne<EventRow>("select * from events where id=$1",[p.event_id]);
  if(!event)notFound();
