@@ -104,3 +104,26 @@ export async function requireEvent(eventId: string, level: "admin" | "host") {
 
   return { viewer, event };
 }
+
+const CHECKIN_KEY = /^[a-f0-9]{32}$/;
+
+/**
+ * Acceso al check-in: con el enlace secreto del evento (sin sesión) o con sesión de anfitrión.
+ * userId es null cuando se entra por enlace.
+ */
+export async function authorizeCheckin(eventId: string, key?: string | null) {
+  if (key) {
+    if (!CHECKIN_KEY.test(key) || !/^[0-9a-f-]{36}$/i.test(eventId)) notFound();
+    const event = await queryOne<EventRow>("select * from events where id = $1 and checkin_key = $2", [eventId, key]);
+    if (!event) notFound();
+    return { event, userId: null as string | null };
+  }
+  const { viewer, event } = await requireEvent(eventId, "host");
+  return { event, userId: viewer.userId as string | null };
+}
+
+/** Evento por su enlace de acreditación (o null). */
+export async function eventByCheckinKey(key: string) {
+  if (!CHECKIN_KEY.test(key)) return null;
+  return queryOne<EventRow>("select * from events where checkin_key = $1", [key]);
+}

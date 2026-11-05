@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { requireEvent } from "@/lib/auth";
+import { authorizeCheckin } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import type { Registration } from "@/lib/types";
 
@@ -87,8 +87,11 @@ function evaluate(r: Row, eventDateId: string): LookupState {
   return holderPending || companionPending ? "VALID" : "ALREADY_IN";
 }
 
+const KEY = z.string().regex(/^[a-f0-9]{32}$/).optional();
+
 const lookupSchema = z.object({
   eventId: z.string().uuid(),
+  key: KEY,
   eventDateId: z.string().uuid(),
   token: z.string().optional(),
   registrationId: z.string().uuid().optional(),
@@ -96,8 +99,8 @@ const lookupSchema = z.object({
 
 /** Valida un QR escaneado o un registro elegido en la búsqueda. No modifica nada. */
 export async function lookupRegistration(input: z.input<typeof lookupSchema>): Promise<LookupResult> {
-  const { eventId, eventDateId, token, registrationId } = lookupSchema.parse(input);
-  await requireEvent(eventId, "host");
+  const { eventId, eventDateId, token, registrationId, key } = lookupSchema.parse(input);
+  await authorizeCheckin(eventId, key);
 
   let row: Row | null;
   if (registrationId) {
@@ -118,14 +121,14 @@ export async function lookupRegistration(input: z.input<typeof lookupSchema>): P
   return { state, person: toPerson(row), registeredDay };
 }
 
-const searchSchema = z.object({ eventId: z.string().uuid(), q: z.string().trim().min(2).max(80) });
+const searchSchema = z.object({ eventId: z.string().uuid(), key: KEY, q: z.string().trim().min(2).max(80) });
 
 /** Búsqueda predictiva por DNI, nombre o correo (titular o acompañante) en todo el evento. */
 export async function searchRegistrations(input: z.input<typeof searchSchema>): Promise<CheckinPerson[]> {
   const parsed = searchSchema.safeParse(input);
   if (!parsed.success) return [];
-  const { eventId, q } = parsed.data;
-  await requireEvent(eventId, "host");
+  const { eventId, q, key } = parsed.data;
+  await authorizeCheckin(eventId, key);
 
   // Escapa comodines de LIKE; los valores van parametrizados
   const term = q.replace(/[\\%_]/g, (c) => "\\" + c).replace(/\s+/g, " ").trim();
@@ -148,6 +151,7 @@ export async function searchRegistrations(input: z.input<typeof searchSchema>): 
 
 const checkInSchema = z.object({
   eventId: z.string().uuid(),
+  key: KEY,
   eventDateId: z.string().uuid(),
   registrationId: z.string().uuid(),
   target: z.enum(["HOLDER", "COMPANION", "BOTH"]),
@@ -155,8 +159,8 @@ const checkInSchema = z.object({
 
 /** Marca el ingreso. La función SQL bloquea la fila y evita doble ingreso aunque dos anfitriones escaneen a la vez. */
 export async function performCheckIn(input: z.input<typeof checkInSchema>): Promise<LookupResult> {
-  const { eventId, eventDateId, registrationId, target } = checkInSchema.parse(input);
-  const { viewer } = await requireEvent(eventId, "host");
+  const { eventId, eventDateId, registrationId, target, key } = checkInSchema.parse(input);
+  const { userId } = await authorizeCheckin(eventId, key);
 
   // El registro debe pertenecer al evento autorizado
   const owns = await queryOne("select 1 from registrations where id = $1 and event_id = $2", [registrationId, eventId]);
@@ -166,10 +170,10 @@ export async function performCheckIn(input: z.input<typeof checkInSchema>): Prom
     registrationId,
     eventDateId,
     target,
-    viewer.userId,
+    userId,
   ]);
 
-  const fresh = await lookupRegistration({ eventId, eventDateId, registrationId });
+  const fresh = await lookupRegistration({ eventId, eventDateId, registrationId, key });
   return { ...fresh, justCheckedIn: res?.r.result === "OK" };
 }
 
@@ -180,8 +184,9 @@ export interface DateStats {
   peopleCheckedIn: number;
 }
 
-export async function getDateStats(eventId: string, eventDateId: string): Promise<DateStats | null> {
-  await requireEvent(eventId, "host");
+export async function getDateStats(eventId: string, eventDateId: string, key?: string): Promise<DateStats | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(eventDateId)) return null;
+  await authorizeCheckin(eventId, key);
   const row = await queryOne<{ capacity: number; seats_taken: number; registrations: number; people_checked_in: number }>(
     `select capacity, seats_taken, registrations, people_checked_in
        from event_date_stats where event_date_id = $1 and event_id = $2`,

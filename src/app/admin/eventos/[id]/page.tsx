@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { ArrowLeft, Download, ExternalLink, FileSpreadsheet, ScanLine, Search } from "lucide-react";
+import { ArrowLeft, Download, ExternalLink, FileSpreadsheet, RefreshCw, ScanLine, Search } from "lucide-react";
 import { requireEvent } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { appUrl, brandStyle, formatDateTime, formatDayShort } from "@/lib/format";
 import { EventForm } from "@/components/admin/event-form";
 import { DatesManager } from "@/components/admin/dates-manager";
 import { ConfirmButton, CopyButton } from "@/components/admin/ui";
-import { cancelRegistration } from "@/app/admin/actions";
+import { cancelRegistration, regenerateCheckinKey } from "@/app/admin/actions";
 import type { EventDate, Registration } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +52,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
   const count = countRow?.n ?? 0;
 
   const publicUrl = appUrl(`/evento/${event.slug}`);
+  const checkinUrl = appUrl(`/acreditar/${event.checkin_key}`);
   const dateById = new Map(dates.map((d) => [d.id, d]));
   const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE));
   const exportQs = fecha ? `&fecha=${fecha}` : "";
@@ -96,6 +97,33 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
         <code className="min-w-0 flex-1 truncate rounded bg-slate-100 px-2 py-1 text-sm">{publicUrl}</code>
         <CopyButton value={publicUrl} />
         {!event.is_published && <span className="text-xs font-medium text-amber-700">Aún no publicado</span>}
+      </div>
+
+      {/* Enlace de acreditación ------------------------------------------------------ */}
+      <div className="card space-y-3 p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+            <ScanLine className="size-4" /> Enlace de acreditación:
+          </span>
+          <code className="min-w-0 flex-1 truncate rounded bg-slate-100 px-2 py-1 text-sm">{checkinUrl}</code>
+          <CopyButton value={checkinUrl} />
+          <a href={checkinUrl} target="_blank" rel="noreferrer" className="btn-ghost px-3 py-1.5">
+            <ExternalLink className="size-4" /> Abrir
+          </a>
+          <form action={regenerateCheckinKey}>
+            <input type="hidden" name="eventId" value={event.id} />
+            <ConfirmButton
+              message="¿Generar un enlace nuevo? El enlace actual dejará de funcionar para todos los anfitriones."
+              className="btn-ghost px-3 py-1.5"
+            >
+              <RefreshCw className="size-4" /> Regenerar
+            </ConfirmButton>
+          </form>
+        </div>
+        <p className="text-xs text-slate-500">
+          Compártelo solo con tus anfitriones: quien lo abra puede acreditar y ver los datos de los asistentes sin iniciar sesión.
+          Si se filtra, regenéralo.
+        </p>
       </div>
 
       {/* Fechas y aforo ------------------------------------------------------------- */}

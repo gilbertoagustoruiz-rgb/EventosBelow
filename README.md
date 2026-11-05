@@ -15,7 +15,8 @@ Plataforma web **multi-tenant** para registrar y acreditar asistentes a eventos 
 | Panel de administración | `/admin` | SuperAdmin y administradores del cliente |
 | Portal de registro | `/evento/[slug]` | Público |
 | Ticket con QR | `/evento/[slug]/ticket/[token]` | Asistente |
-| Acreditación (check-in) | `/checkin/[eventId]` | Anfitriones |
+| Acreditación (check-in) | `/acreditar/[enlace]` | Anfitriones, **sin login**, con el enlace secreto del evento |
+| Acreditación con cuenta | `/checkin/[eventId]` | Usuarios anfitriones con login |
 
 ### 1. Administración
 - **Clientes** (`/admin/clientes`): alta de empresas cliente (solo SuperAdmin) y de usuarios con rol *Administrador* o *Anfitrión*. Al crear un usuario se muestra una **contraseña temporal** (una sola vez) que debe cambiar en su primer ingreso; también se puede generar una nueva si la olvida.
@@ -32,6 +33,7 @@ Plataforma web **multi-tenant** para registrar y acreditar asistentes a eventos 
 - **Correo de confirmación** con el QR embebido (vía Resend). Sin `RESEND_API_KEY` el envío se simula en la consola del servidor.
 
 ### 3. Acreditación
+- Cada evento tiene un **enlace secreto de acreditación** (`/acreditar/<código>`, 128 bits aleatorios) que se copia desde el panel. Quien lo abre acredita **sin usuario ni contraseña**. **Regenerar** el enlace invalida el anterior al instante. Los usuarios con rol anfitrión también pueden entrar por `/checkin` con su cuenta.
 - Interfaz oscura, pensada para celular/tablet, con **selector de fecha activa** (por defecto: hoy) y contador *ingresados / inscritos*.
 - **Escáner QR** con la cámara trasera, o **búsqueda predictiva** por DNI, nombre o correo (del titular o del acompañante).
 - Resultado inmediato a pantalla completa, con sonido y vibración:

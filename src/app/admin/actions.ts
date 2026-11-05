@@ -326,3 +326,14 @@ export async function cancelRegistration(fd: FormData) {
   }
   revalidatePath(`/admin/eventos/${eventId}`);
 }
+
+// -------------------------------------------------------------------------------------
+// Enlace de acreditación
+// -------------------------------------------------------------------------------------
+/** Crea un enlace nuevo; el anterior deja de funcionar de inmediato. */
+export async function regenerateCheckinKey(fd: FormData) {
+  const eventId = str(fd, "eventId") ?? "";
+  await requireEvent(eventId, "admin");
+  await query("update events set checkin_key = replace(gen_random_uuid()::text, '-', '') where id = $1", [eventId]);
+  revalidatePath(`/admin/eventos/${eventId}`);
+}

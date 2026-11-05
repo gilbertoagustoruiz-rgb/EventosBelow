@@ -27,6 +27,7 @@ export interface EventRow {
   timezone: string;
   is_published: boolean;
   registration_open: boolean;
+  checkin_key: string;
   created_at: string;
 }
 

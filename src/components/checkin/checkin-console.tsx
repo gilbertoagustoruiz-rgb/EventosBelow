@@ -36,13 +36,16 @@ const AUTO_RESET_MS = 3500;
 
 interface Props {
   eventId: string;
+  /** Enlace secreto de acreditación: si viene, las acciones no requieren sesión */
+  accessKey?: string;
   eventName: string;
   timezone: string;
   dates: EventDate[];
   initialDateId: string;
 }
 
-export function CheckinConsole({ eventId, eventName, timezone, dates, initialDateId }: Props) {
+export function CheckinConsole({ eventId, accessKey, eventName, timezone, dates, initialDateId }: Props) {
+  const key = accessKey;
   const [dateId, setDateId] = useState(initialDateId);
   const [mode, setMode] = useState<Mode>("scan");
   const [result, setResult] = useState<LookupResult | null>(null);
@@ -53,8 +56,8 @@ export function CheckinConsole({ eventId, eventName, timezone, dates, initialDat
 
   // --- Métricas --------------------------------------------------------------------
   const refreshStats = useCallback(() => {
-    getDateStats(eventId, dateId).then(setStats).catch(() => {});
-  }, [eventId, dateId]);
+    getDateStats(eventId, dateId, key).then(setStats).catch(() => {});
+  }, [eventId, dateId, key]);
 
   useEffect(() => {
     refreshStats();
@@ -107,18 +110,18 @@ export function CheckinConsole({ eventId, eventName, timezone, dates, initialDat
         show({ state: "NOT_FOUND", person: null });
         return;
       }
-      run(() => lookupRegistration({ eventId, eventDateId: dateId, token }));
+      run(() => lookupRegistration({ eventId, key, eventDateId: dateId, token }));
     },
-    [eventId, dateId, run, show],
+    [eventId, key, dateId, run, show],
   );
 
   const onPick = (p: CheckinPerson) =>
-    run(() => lookupRegistration({ eventId, eventDateId: dateId, registrationId: p.id }));
+    run(() => lookupRegistration({ eventId, key, eventDateId: dateId, registrationId: p.id }));
 
   const onCheckIn = (target: "HOLDER" | "COMPANION" | "BOTH") => {
     if (!result?.person) return;
     const registrationId = result.person.id;
-    run(() => performCheckIn({ eventId, eventDateId: dateId, registrationId, target }));
+    run(() => performCheckIn({ eventId, key, eventDateId: dateId, registrationId, target }));
   };
 
   return (
@@ -196,7 +199,7 @@ export function CheckinConsole({ eventId, eventName, timezone, dates, initialDat
           </div>
         )}
 
-        {mode === "search" && !result && <SearchPanel eventId={eventId} activeDateId={dateId} onPick={onPick} busy={busy} />}
+        {mode === "search" && !result && <SearchPanel eventId={eventId} accessKey={key} activeDateId={dateId} onPick={onPick} busy={busy} />}
 
         {result && (
           <ResultPanel
@@ -386,11 +389,13 @@ function ActionButton({
 
 function SearchPanel({
   eventId,
+  accessKey,
   activeDateId,
   onPick,
   busy,
 }: {
   eventId: string;
+  accessKey?: string;
   activeDateId: string;
   onPick: (p: CheckinPerson) => void;
   busy: boolean;
@@ -409,14 +414,14 @@ function SearchPanel({
     const id = ++reqId.current;
     setLoading(true);
     const t = setTimeout(async () => {
-      const res = await searchRegistrations({ eventId, q: term }).catch(() => []);
+      const res = await searchRegistrations({ eventId, key: accessKey, q: term }).catch(() => []);
       if (id === reqId.current) {
         setItems(res);
         setLoading(false);
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [q, eventId]);
+  }, [q, eventId, accessKey]);
 
   return (
     <div className="space-y-3">
