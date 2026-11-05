@@ -54,7 +54,11 @@ export function readableOn(hex: string) {
     return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
   });
   const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return lum > 0.45 ? "#0f172a" : "#ffffff";
+  // Escoge el mayor contraste entre blanco y slate-900, incluso para tonos medios.
+  const darkLum = 0.008815;
+  const darkContrast = (lum + 0.05) / (darkLum + 0.05);
+  const whiteContrast = 1.05 / (lum + 0.05);
+  return darkContrast >= whiteContrast ? "#0f172a" : "#ffffff";
 }
 
 export function brandStyle(hex: string) {

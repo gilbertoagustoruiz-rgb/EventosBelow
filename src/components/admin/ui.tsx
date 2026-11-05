@@ -4,10 +4,10 @@ import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Check, Copy, Loader2 } from "lucide-react";
 
-export function SubmitButton({ children, className = "btn-dark" }: { children: React.ReactNode; className?: string }) {
+export function SubmitButton({ children, className = "btn-dark", disabled = false }: { children: React.ReactNode; className?: string; disabled?: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" disabled={pending} className={className}>
+    <button type="submit" disabled={pending || disabled} className={className}>
       {pending && <Loader2 className="size-4 animate-spin" />}
       {children}
     </button>

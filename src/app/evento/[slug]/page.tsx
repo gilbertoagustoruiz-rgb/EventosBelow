@@ -24,7 +24,7 @@ export default async function PublicEventPage({ params }: Params) {
   const dates = await getPublicDates(event);
 
   return (
-    <div style={brandStyle(event.primary_color)} className="min-h-dvh bg-slate-50">
+    <div style={brandStyle(event.primary_color)} className="min-h-dvh bg-[color-mix(in_srgb,var(--brand)_5%,white)]">
       <EventHeader name={event.name} logoUrl={event.logo_url} venue={event.venue} description={event.description} />
       <main className="mx-auto -mt-12 max-w-3xl px-4 pb-16 sm:px-8">
         <div className="card p-5 sm:p-8">
