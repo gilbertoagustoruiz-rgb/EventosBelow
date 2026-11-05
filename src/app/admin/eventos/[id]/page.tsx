@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { ArrowLeft, Download, ExternalLink, FileSpreadsheet, RefreshCw, ScanLine, Search } from "lucide-react";
+import { ArrowLeft, BarChart3, Download, ExternalLink, FileSpreadsheet, RefreshCw, ScanLine, Search, Users } from "lucide-react";
 import { requireEvent } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { withCheckinBy } from "@/lib/registrations";
 import { appUrl, brandStyle, formatDateTime, formatDayShort } from "@/lib/format";
-import { EventPromoters, type EventPromoter } from "./event-promoters";
+import { EventStaff } from "./staff";
+import { eventStaff, staffCandidates } from "@/lib/staff";
+import { projectOptions } from "@/lib/projects";
 import { EventForm } from "@/components/admin/event-form";
 import { DatesManager } from "@/components/admin/dates-manager";
 import { ConfirmButton, CopyButton } from "@/components/admin/ui";
@@ -22,7 +24,7 @@ type Props = {
 
 export default async function EventAdminPage({ params, searchParams }: Props) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
-  const { event } = await requireEvent(id, "admin");
+  const { event, viewer } = await requireEvent(id, "admin");
   const page = Math.max(1, Number(sp.page) || 1);
   const fecha = sp.fecha && /^[0-9a-f-]{36}$/i.test(sp.fecha) ? sp.fecha : null;
   const q = sp.q?.trim() || null;
@@ -38,13 +40,14 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
     and ($3::text is null
          or full_name ilike '%' || $3 || '%'
          or email ilike '%' || $3 || '%'
+         or employee_code ilike $3 || '%'
          or ($4 <> '' and document_number like $4 || '%'))`;
   const like = q?.replace(/[\\%_]/g, (c) => "\\" + c) ?? null;
   const doc = q?.toUpperCase().replace(/[^A-Z0-9]/g, "") ?? "";
   const filterParams = [id, fecha, like, doc];
 
-  const [regs, countRow, tenant] = await Promise.all([
-    query<Registration & { checked_in_by_label: string | null }>(
+  const [regs, countRow, tenant, staff, candidates, projects, inviteeCount] = await Promise.all([
+    query<Registration & { checked_in_by_label: string | null; companions_in: number; companions_list: string | null }>(
       withCheckinBy(
         `select * from registrations where ${where} order by created_at desc limit ${PAGE_SIZE} offset $5`,
         "r.created_at desc",
@@ -52,32 +55,16 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
       [...filterParams, (page - 1) * PAGE_SIZE],
     ),
     queryOne<{ n: number }>(`select count(*) as n from registrations where ${where}`, filterParams),
-    queryOne<{ id: string; name: string }>("select id, name from tenants where id = $1", [event.tenant_id]),
+    queryOne<{ id: string; name: string; project: string }>(
+      "select t.id, t.name, p.name as project from tenants t join projects p on p.id = $2 where t.id = $1",
+      [event.tenant_id, event.project_id],
+    ),
+    eventStaff(id),
+    staffCandidates(),
+    projectOptions(viewer),
+    queryOne<{ n: number }>("select count(*)::int as n from invitees where event_id = $1", [id]),
   ]);
   const count = countRow?.n ?? 0;
-
-  // Promotores que el administrador asignó al cliente y aún no están seleccionados en este evento
-  const availablePromoters = await query<{ id: string; full_name: string; document_number: string | null }>(
-    `select e.id, e.full_name, e.document_number
-       from employees e
-       join employee_clients ec on ec.employee_id = e.id and ec.tenant_id = $1
-      where e.profile = 'PROMOTOR' and e.is_active
-        and not exists (select 1 from event_promoters ep where ep.event_id = $2 and ep.employee_id = e.id and ep.is_active)
-      order by e.full_name`,
-    [event.tenant_id, id],
-  );
-  const selectedPromoters: EventPromoter[] = (
-    await query<Omit<EventPromoter, "url">>(
-      `select ep.id, e.full_name, e.document_number, ep.access_key,
-              ep.is_active and e.is_active as is_active,
-              exists (select 1 from employee_clients ec where ec.employee_id = e.id and ec.tenant_id = $2) as still_assigned,
-              (select count(*) from promoter_checkins c where c.promoter_id = ep.id)::int as checkins
-         from event_promoters ep join employees e on e.id = ep.employee_id
-        where ep.event_id = $1
-        order by ep.is_active desc, e.full_name`,
-      [id, event.tenant_id],
-    )
-  ).map((p) => ({ ...p, url: appUrl(`/promotor/${p.access_key}`) }));
 
   const publicUrl = appUrl(`/evento/${event.slug}`);
   const checkinUrl = appUrl(`/acreditar/${event.checkin_key}`);
@@ -93,10 +80,13 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
         </Link>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-sm text-slate-500">{tenant?.name}</p>
+            <p className="text-sm text-slate-500">{tenant?.name} · {tenant?.project}</p>
             <h1 className="text-2xl font-bold">{event.name}</h1>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link href={`/admin/eventos/${event.id}/dashboard`} className="btn-ghost">
+              <BarChart3 className="size-4" /> Dashboard
+            </Link>
             <Link href={`/checkin/${event.id}`} className="btn-ghost">
               <ScanLine className="size-4" /> Acreditar asistentes
             </Link>
@@ -120,9 +110,9 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
       </div>
 
       <nav aria-label="Secciones del evento" className="flex flex-wrap gap-2">
-        {[["fechas", "1. Fechas y cupos"], ["inscripciones", "2. Inscripciones"], ["configuracion", "3. Configuración"]].map(([anchor, label]) => <a key={anchor} href={`#${anchor}`} className="btn-ghost">{label}</a>)}
+        {[["fechas", "1. Fechas y cupos"], ["invitados", "2. Invitados"], ["personal", "3. Personal"], ["inscripciones", "4. Inscripciones"], ["configuracion", "5. Configuración"]].map(([anchor, label]) => <a key={anchor} href={`#${anchor}`} className="btn-ghost">{label}</a>)}
       </nav>
-      {(!dates.length || !event.is_published) && <aside className="rounded-2xl border border-indigo-100 bg-indigo-50 p-5 text-sm text-indigo-900"><h2 className="font-semibold">Prepara tu evento para recibir inscripciones</h2><ul className="mt-2 space-y-1"><li>{dates.length ? "✓ Ya agregaste las fechas." : "1. Agrega al menos una fecha con sus cupos."}</li><li>{event.is_published ? "✓ El evento está publicado." : "2. Activa «Publicado» en Configuración cuando esté listo."}</li><li>3. Comparte el enlace de registro con tus invitados.</li></ul></aside>}
+      {(!dates.length || !event.is_published) && <aside className="rounded-2xl border border-indigo-100 bg-indigo-50 p-5 text-sm text-indigo-900"><h2 className="font-semibold">Prepara tu evento para recibir inscripciones</h2><ul className="mt-2 space-y-1"><li>{dates.length ? "✓ Ya agregaste las fechas." : "1. Agrega al menos una fecha con sus cupos."}</li><li>{inviteeCount?.n ? `✓ Base de invitados cargada (${inviteeCount.n}).` : "2. Carga la base de invitados: solo ellos podrán confirmar su asistencia."}</li><li>{event.is_published ? "✓ El evento está publicado." : "3. Activa «Publicado» en Configuración cuando esté listo."}</li><li>4. Comparte el enlace con tus invitados: confirman con su DNI o código de vendedor.</li></ul></aside>}
 
       {/* Enlace público --------------------------------------------------------------- */}
       <div className="card flex flex-wrap items-center gap-3 p-4">
@@ -146,7 +136,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
           <form action={regenerateCheckinKey}>
             <input type="hidden" name="eventId" value={event.id} />
             <ConfirmButton
-              message="¿Generar un enlace nuevo? El enlace actual dejará de funcionar para todos los anfitriones."
+              message="¿Generar un enlace nuevo? El enlace actual dejará de funcionar para quien lo tenga."
               className="btn-ghost px-3 py-1.5"
             >
               <RefreshCw className="size-4" /> Regenerar
@@ -154,18 +144,29 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
           </form>
         </div>
         <p className="text-xs text-slate-500">
-          Compártelo solo con tus anfitriones: quien lo abra puede acreditar y ver los datos de los asistentes sin iniciar sesión.
-          Si se filtra, regenéralo.
+          Enlace general sin inicio de sesión, para apoyo eventual. Los ingresos por este enlace figuran como «Enlace general».
+          Lo recomendado es que supervisores y promotores ingresen con su usuario. Si se filtra, regenéralo.
         </p>
       </div>
-
-      <EventPromoters eventId={event.id} available={availablePromoters} selected={selectedPromoters} />
 
       {/* Fechas y aforo ------------------------------------------------------------- */}
       <section id="fechas" className="card p-4 sm:p-6">
         <h2 className="mb-4 text-lg font-semibold">Fechas y aforo</h2>
         <DatesManager eventId={event.id} dates={dates} />
       </section>
+
+      {/* Invitados ----------------------------------------------------------------- */}
+      <section id="invitados" className="card flex flex-wrap items-center gap-4 p-4 sm:p-6">
+        <span className="grid size-10 place-items-center rounded-xl bg-slate-100"><Users className="size-5 text-slate-500" /></span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg font-semibold">Base de invitados <span className="font-normal text-slate-500">({inviteeCount?.n ?? 0})</span></h2>
+          <p className="text-sm text-slate-500">Solo las personas de la base pueden confirmar su asistencia, con su DNI o código de vendedor.</p>
+        </div>
+        <Link href={`/admin/eventos/${event.id}/invitados`} className="btn-ghost">Ver invitados</Link>
+        <Link href={`/admin/eventos/${event.id}/importar`} className="btn-brand"><FileSpreadsheet className="size-4" /> Cargar Excel</Link>
+      </section>
+
+      <EventStaff eventId={event.id} staff={staff} candidates={candidates} canManageSupervisors />
 
       {/* Registros ------------------------------------------------------------------ */}
       <section id="inscripciones" className="card p-4 sm:p-6">
@@ -174,7 +175,6 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
             Inscripciones <span className="font-normal text-slate-500">({count})</span>
           </h2>
           <div className="flex gap-2">
-            <Link href={`/admin/eventos/${event.id}/importar`} className="btn-brand py-2"><FileSpreadsheet className="size-4"/> Importar Excel</Link>
             <a href={`/admin/eventos/${event.id}/exportar?formato=xlsx${exportQs}`} className="btn-ghost py-2">
               <FileSpreadsheet className="size-4" /> Excel
             </a>
@@ -187,7 +187,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
         <form className="mt-4 flex flex-wrap gap-2">
           <div className="relative min-w-56 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
-            <input name="q" aria-label="Buscar inscripciones por nombre, correo o documento" defaultValue={sp.q} placeholder="Nombre, correo o documento" className="input py-2 pl-9" />
+            <input name="q" aria-label="Buscar inscripciones por nombre, correo, documento o código" defaultValue={sp.q} placeholder="Nombre, correo, documento o código" className="input py-2 pl-9" />
           </div>
           <select name="fecha" aria-label="Filtrar por fecha del evento" defaultValue={sp.fecha ?? ""} className="input w-full py-2 sm:w-auto">
             <option value="">Todas las fechas</option>
@@ -208,7 +208,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
                 <th className="py-2 pr-4 font-medium">Documento</th>
                 <th className="py-2 pr-4 font-medium">Empresa</th>
                 <th className="py-2 pr-4 font-medium">Fecha</th>
-                <th className="py-2 pr-4 font-medium">Acompañante</th>
+                <th className="py-2 pr-4 font-medium">Acompañantes</th>
                 <th className="py-2 pr-4 font-medium">Estado</th>
                 <th className="py-2" />
               </tr>
@@ -222,20 +222,23 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
                       <p className="font-medium">{r.full_name}</p>
                       <p className="text-slate-500">{r.email} · {r.phone}</p>
                     </td>
-                    <td className="py-3 pr-4 whitespace-nowrap">{r.document_type} {r.document_number}</td>
+                    <td className="py-3 pr-4 whitespace-nowrap">
+                      {r.document_type} {r.document_number}
+                      {r.employee_code && <p className="text-slate-500">Cód. {r.employee_code}</p>}
+                    </td>
                     <td className="py-3 pr-4">
                       {r.company ?? "—"}
                       {r.job_title && <p className="text-slate-500">{r.job_title}</p>}
                     </td>
                     <td className="py-3 pr-4 whitespace-nowrap">{d ? formatDayShort(d.event_day) : "—"}</td>
                     <td className="py-3 pr-4">
-                      {r.has_companion ? (
+                      {r.companions_count > 0 ? (
                         <>
-                          {r.companion_full_name}
-                          <p className="text-slate-500">{r.companion_document_number}</p>
+                          <p className="font-medium">{r.companions_count} · {r.companions_in} ingresaron</p>
+                          <p className="max-w-64 text-xs text-slate-500">{r.companions_list}</p>
                         </>
                       ) : (
-                        "—"
+                        "Solo"
                       )}
                     </td>
                     <td className="py-3 pr-4 whitespace-nowrap">
@@ -243,13 +246,10 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
                       {r.holder_checked_in_at && (
                         <p className="mt-1 text-xs text-slate-500">Titular: {formatDateTime(r.holder_checked_in_at, event.timezone)}</p>
                       )}
-                      {r.companion_checked_in_at && (
-                        <p className="text-xs text-slate-500">Acompañante: {formatDateTime(r.companion_checked_in_at, event.timezone)}</p>
-                      )}
                       {r.checked_in_by_label && <p className="text-xs text-slate-400">por {r.checked_in_by_label}</p>}
                     </td>
                     <td className="py-3 text-right whitespace-nowrap">
-                      {r.status === "REGISTRADO" && !r.companion_checked_in_at && (
+                      {r.status === "REGISTRADO" && r.companions_in === 0 && (
                         <form action={cancelRegistration}>
                           <input type="hidden" name="eventId" value={event.id} />
                           <input type="hidden" name="registrationId" value={r.id} />
@@ -281,7 +281,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
       {/* Configuración -------------------------------------------------------------- */}
       <section id="configuracion" className="card p-4 sm:p-8">
         <h2 className="mb-6 text-lg font-semibold">Configuración y branding</h2>
-        <EventForm event={event} tenants={tenant ? [tenant] : []} />
+        <EventForm event={event} projects={projects} />
       </section>
     </div>
   );

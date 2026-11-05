@@ -1,20 +1,19 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { adminTenantIds, requireViewer } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { requireViewer } from "@/lib/auth";
+import { projectOptions } from "@/lib/projects";
 import { EventForm } from "@/components/admin/event-form";
 
 export const metadata = { title: "Nuevo evento" };
 
-export default async function NewEventPage() {
+export default async function NewEventPage({ searchParams }: { searchParams: Promise<{ proyecto?: string }> }) {
   const viewer = await requireViewer();
-  const tenants = await query<{ id: string; name: string }>(
-    `select id, name from tenants where is_active and ($1::uuid[] is null or id = any($1)) order by name`,
-    [viewer.isPlatformAdmin ? null : adminTenantIds(viewer)],
-  );
+  if (!viewer.isPlatformAdmin && viewer.profile !== "COORDINADOR") redirect("/admin");
+  const { proyecto } = await searchParams;
+  const projects = await projectOptions(viewer);
 
-  if (!tenants.length) redirect(viewer.isPlatformAdmin ? "/admin/clientes" : "/admin");
+  if (!projects.length) redirect(viewer.isPlatformAdmin ? "/admin/proyectos" : "/admin");
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -22,10 +21,10 @@ export default async function NewEventPage() {
         <ArrowLeft className="size-4" /> Eventos
       </Link>
       <h1 className="mt-3 text-3xl font-bold tracking-tight">Crea tu próximo evento</h1>
-      <p className="mt-2 leading-relaxed text-slate-600">Completa la información y sube el logo de la empresa. Después podrás agregar las fechas y compartir el enlace de inscripción.</p>
-      <ol aria-label="Pasos para publicar" className="mt-5 flex flex-wrap gap-2 text-xs font-semibold"><li className="rounded-full bg-indigo-100 px-3 py-2 text-indigo-700">1. Información e imagen</li><li className="rounded-full bg-slate-100 px-3 py-2 text-slate-600">2. Fechas y cupos</li><li className="rounded-full bg-slate-100 px-3 py-2 text-slate-600">3. Publicar y compartir</li></ol>
+      <p className="mt-2 leading-relaxed text-slate-600">Elige el cliente y proyecto, completa la información y sube el logo. Después agregarás las fechas, la base de invitados y el personal de apoyo.</p>
+      <ol aria-label="Pasos para publicar" className="mt-5 flex flex-wrap gap-2 text-xs font-semibold"><li className="rounded-full bg-indigo-100 px-3 py-2 text-indigo-700">1. Información e imagen</li><li className="rounded-full bg-slate-100 px-3 py-2 text-slate-600">2. Fechas y cupos</li><li className="rounded-full bg-slate-100 px-3 py-2 text-slate-600">3. Invitados y personal</li><li className="rounded-full bg-slate-100 px-3 py-2 text-slate-600">4. Publicar y compartir</li></ol>
       <div className="card mt-6 p-6 sm:p-8">
-        <EventForm tenants={tenants} />
+        <EventForm projects={projects} defaultProjectId={projects.find((p) => p.id === proyecto)?.id} />
       </div>
     </div>
   );

@@ -1,27 +1,26 @@
 "use server";
 
 import ExcelJS from "exceljs";
-import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { requireEvent } from "@/lib/auth";
-import { pgMessage, query, queryOne, transaction } from "@/lib/db";
-import { sendConfirmationEmail } from "@/lib/email";
-import { registrationSchema } from "@/lib/validation";
-import type { CompanionMode } from "@/lib/types";
+import { pgCode, query, transaction } from "@/lib/db";
+import { DOCUMENT_TYPES, documentIssue } from "@/lib/validation";
+
+/* Carga de la base de invitados del evento (lista precargada).
+ * Los asistentes luego confirman su día con su DNI o código de vendedor. */
 
 type Row = {
   line: number;
   name: string;
-  email: string;
-  phone: string;
   documentType: string;
   document: string;
+  code: string;
+  email: string;
+  phone: string;
   company: string;
   jobTitle: string;
-  companionName: string;
-  companionType: string;
-  companionDocument: string;
   errors: string[];
+  exists?: boolean;
 };
 
 export type ImportResult = {
@@ -29,49 +28,37 @@ export type ImportResult = {
   message: string;
   valid: number;
   invalid: number;
-  duplicates: number;
+  updates: number;
   imported: number;
-  emailed: number;
   preview: Row[];
 };
 
-const empty = (message: string): ImportResult => ({
-  ok: false,
-  message,
-  valid: 0,
-  invalid: 0,
-  duplicates: 0,
-  imported: 0,
-  emailed: 0,
-  preview: [],
-});
+const empty = (message: string): ImportResult => ({ ok: false, message, valid: 0, invalid: 0, updates: 0, imported: 0, preview: [] });
 
-const UUID = /^[0-9a-f-]{36}$/i;
-const MAX_ROWS = 2000;
-const MAX_BYTES = 3 * 1024 * 1024;
+const MAX_ROWS = 5000;
+const MAX_BYTES = 5 * 1024 * 1024;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE = /^\+?[0-9\s-]{7,20}$/;
 
 /** Encabezados reconocidos. Se comparan en forma canónica (ver `canonical`). */
 const aliases: Record<string, string[]> = {
-  name: ["nombre", "nombres", "nombre completo", "nombres y apellidos", "apellidos y nombres", "asistente", "participante", "full name", "name"],
-  email: ["correo", "correo electronico", "email", "e mail", "mail"],
-  phone: ["celular", "telefono", "telefono celular", "movil", "numero celular", "whatsapp", "phone"],
+  name: ["nombre", "nombres", "nombre completo", "nombres y apellidos", "apellidos y nombres", "asistente", "participante", "invitado", "full name", "name"],
   document: ["dni", "documento", "documento identidad", "doc", "cedula", "pasaporte", "ce", "document number"],
   documentType: ["tipo documento", "tipo doc"],
+  code: ["codigo", "codigo vendedor", "codigo empleado", "cod vendedor", "cod empleado", "vendedor", "employee code", "seller code"],
+  email: ["correo", "correo electronico", "email", "e mail", "mail"],
+  phone: ["celular", "telefono", "telefono celular", "movil", "numero celular", "whatsapp", "phone"],
   company: ["empresa", "organizacion", "compania", "razon social", "company"],
   jobTitle: ["cargo", "puesto", "job title"],
-  companionName: ["acompanante", "nombre acompanante", "acompanante nombre"],
-  companionType: ["tipo documento acompanante", "tipo doc acompanante"],
-  companionDocument: ["documento acompanante", "dni acompanante"],
 };
 
-// Palabras que no aportan: "N° de Documento", "Nro. DNI", "Número del documento" → "documento" / "dni"
+// Palabras que no aportan: "N° de Documento", "Nro. DNI", "Código del vendedor"
 const STOP = new Set(["n", "no", "nro", "num", "numero", "de", "del", "la", "el", "y", "o"]);
 
-/** Sin tildes, símbolos (°, º, #, .) ni palabras de relleno; "y" se conserva solo en el alias original. */
 const canonical = (s: string) =>
   s
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
@@ -94,29 +81,18 @@ function cell(v: ExcelJS.CellValue): string {
   return String(v).trim();
 }
 
-const DB_ROW_ERRORS: Record<string, string> = {
-  DUPLICATE: "Ya inscrito en esta fecha",
-  COMPANION_REQUIRED: "El evento exige acompañante",
-  COMPANION_NOT_ALLOWED: "El evento no admite acompañante",
+const TYPE_ALIASES: Record<string, (typeof DOCUMENT_TYPES)[number]> = {
+  DNI: "DNI", CE: "CE", "CARNE": "CE", "CARNEEXTRANJERIA": "CE", PASAPORTE: "PASAPORTE", PAS: "PASAPORTE", CEDULA: "CEDULA",
 };
 
 async function parse(fd: FormData) {
   const eventId = String(fd.get("eventId") ?? "");
-  const dateId = String(fd.get("dateId") ?? "");
-  const { event } = await requireEvent(eventId, "admin");
-  if (!UUID.test(dateId)) throw Error("Selecciona una fecha válida del evento.");
-
-  const date = await queryOne<{ id: string; capacity: number; registered_count: number }>(
-    "select id, capacity, registered_count from event_dates where id = $1 and event_id = $2",
-    [dateId, eventId],
-  );
-  if (!date) throw Error("Selecciona una fecha válida del evento.");
+  await requireEvent(eventId, "admin");
 
   const file = fd.get("file");
   if (!(file instanceof File) || file.size === 0 || file.size > MAX_BYTES || !/\.xlsx$/i.test(file.name)) {
-    throw Error("Adjunta un Excel .xlsx de máximo 3 MB.");
+    throw Error("Adjunta un Excel .xlsx de máximo 5 MB.");
   }
-
   const book = new ExcelJS.Workbook();
   try {
     await book.xlsx.load(Buffer.from(await file.arrayBuffer()) as never);
@@ -137,99 +113,79 @@ async function parse(fd: FormData) {
     throw Error("No se identificaron las columnas Nombre y Documento/DNI en la primera fila.");
   }
 
-  const companionMode = event.companion_mode as CompanionMode;
   const rows: Row[] = [];
-  const seen = new Set<string>();
-
+  const seenDoc = new Set<string>();
+  const seenCode = new Set<string>();
   for (let i = 2; i <= sheet.rowCount; i++) {
     const row = sheet.getRow(i);
     const get = (key: string) => (mapping[key] ? cell(row.getCell(mapping[key]).value) : "");
-    const name = get("name");
+    const name = get("name").replace(/\s+/g, " ");
     const document = get("document").toUpperCase().replace(/[\s.-]/g, "");
     if (!name && !document) continue;
 
-    const documentType = (get("documentType") || (/^[0-9]{8}$/.test(document) ? "DNI" : "CE")).toUpperCase();
-    const companionName = get("companionName");
-    const companionDocument = get("companionDocument");
-    const companionType = (get("companionType") || "DNI").toUpperCase();
+    const rawType = get("documentType").toUpperCase().replace(/[^A-Z]/g, "");
+    const documentType = TYPE_ALIASES[rawType] ?? (rawType ? rawType : /^[0-9]{8}$/.test(document) ? "DNI" : "CE");
+    const code = get("code").toUpperCase().replace(/\s+/g, "");
+    const email = get("email").toLowerCase();
+    const phone = get("phone");
+    const errors: string[] = [];
 
-    const validation = registrationSchema.safeParse({
-      eventDateId: dateId,
-      fullName: name,
-      email: get("email"),
-      phone: get("phone"),
-      documentType,
-      documentNumber: document,
-      company: get("company"),
-      jobTitle: get("jobTitle"),
-      hasCompanion: !!companionName,
-      companionFullName: companionName,
-      companionDocumentType: companionType,
-      companionDocumentNumber: companionDocument,
-    });
-    const errors = validation.success ? [] : [...new Set(validation.error.issues.map((e) => e.message))];
-
-    // Reglas de acompañante del evento: se informan por fila en la vista previa
-    if (companionMode === "NONE" && companionName) errors.push(DB_ROW_ERRORS.COMPANION_NOT_ALLOWED);
-    if (companionMode === "REQUIRED" && !companionName) errors.push(DB_ROW_ERRORS.COMPANION_REQUIRED);
+    if (name.length < 3) errors.push("Falta el nombre");
+    if (!(DOCUMENT_TYPES as readonly string[]).includes(documentType)) errors.push("Tipo de documento no válido");
+    else {
+      const issue = documentIssue(documentType as (typeof DOCUMENT_TYPES)[number], document);
+      if (issue) errors.push(issue);
+    }
+    if (code && !/^[A-Z0-9_-]{2,40}$/.test(code)) errors.push("Código no válido");
+    if (email && !EMAIL.test(email)) errors.push("Correo no válido");
+    if (phone && !PHONE.test(phone)) errors.push("Celular no válido");
 
     const unique = documentType + ":" + document;
-    if (seen.has(unique)) errors.push("Documento duplicado dentro del Excel");
-    seen.add(unique);
+    if (seenDoc.has(unique)) errors.push("Documento repetido en el Excel");
+    seenDoc.add(unique);
+    if (code) {
+      if (seenCode.has(code)) errors.push("Código repetido en el Excel");
+      seenCode.add(code);
+    }
 
     rows.push({
-      line: i,
-      name,
-      email: validation.success ? validation.data.email : get("email"),
-      phone: get("phone"),
-      documentType,
-      document,
-      company: get("company"),
-      jobTitle: get("jobTitle"),
-      companionName,
-      companionType,
-      companionDocument,
-      errors,
+      line: i, name, documentType, document, code, email, phone,
+      company: get("company"), jobTitle: get("jobTitle"), errors,
     });
   }
   if (rows.length === 0) throw Error("El archivo no contiene registros.");
+  return { eventId, rows };
+}
 
-  return { event, eventId, dateId, date, rows };
+/** Marca filas que actualizan invitados existentes y códigos que ya usa otra persona. */
+async function markExisting(eventId: string, rows: Row[]) {
+  const existing = await query<{ document_type: string; document_number: string; employee_code: string | null }>(
+    "select document_type, document_number, upper(employee_code) as employee_code from invitees where event_id = $1",
+    [eventId],
+  );
+  const byDoc = new Set(existing.map((r) => r.document_type + ":" + r.document_number));
+  const codeOwner = new Map(existing.filter((r) => r.employee_code).map((r) => [r.employee_code!, r.document_type + ":" + r.document_number]));
+  for (const r of rows) {
+    const key = r.documentType + ":" + r.document;
+    r.exists = byDoc.has(key);
+    const owner = r.code ? codeOwner.get(r.code) : undefined;
+    if (owner && owner !== key) r.errors.push("El código ya pertenece a otro invitado");
+  }
 }
 
 export async function previewImport(_: ImportResult, fd: FormData): Promise<ImportResult> {
   try {
-    const { eventId, dateId, date, rows } = await parse(fd);
-    const existing = await query<{ document_type: string; document_number: string }>(
-      `select document_type, document_number from registrations
-        where event_id = $1 and event_date_id = $2 and status <> 'CANCELADO'`,
-      [eventId, dateId],
-    );
-    const used = new Set(existing.map((r) => r.document_type + ":" + r.document_number));
-
-    let duplicates = 0;
-    for (const row of rows) {
-      if (used.has(row.documentType + ":" + row.document)) {
-        row.errors.push(DB_ROW_ERRORS.DUPLICATE);
-        duplicates++;
-      }
-    }
-
-    const validRows = rows.filter((r) => !r.errors.length);
-    const seats = validRows.reduce((n, r) => n + (r.companionName ? 2 : 1), 0);
-    const free = date.capacity - date.registered_count;
-
+    const { eventId, rows } = await parse(fd);
+    await markExisting(eventId, rows);
+    const valid = rows.filter((r) => !r.errors.length);
+    const updates = valid.filter((r) => r.exists).length;
     return {
       ok: true,
-      message:
-        seats > free
-          ? `Atención: las filas válidas necesitan ${seats} cupos y solo quedan ${free}. Amplía el aforo de la fecha o reduce el archivo; si confirmas así, no se importará ninguna fila.`
-          : "Vista previa lista. Confirma para importar solo las filas válidas.",
-      valid: validRows.length,
-      invalid: rows.length - validRows.length,
-      duplicates,
+      message: "Vista previa lista. Confirma para cargar solo las filas válidas.",
+      valid: valid.length,
+      invalid: rows.length - valid.length,
+      updates,
       imported: 0,
-      emailed: 0,
       preview: rows.slice(0, 100),
     };
   } catch (e) {
@@ -239,95 +195,60 @@ export async function previewImport(_: ImportResult, fd: FormData): Promise<Impo
 
 export async function commitImport(_: ImportResult, fd: FormData): Promise<ImportResult> {
   try {
-    const { event, eventId, dateId, rows } = await parse(fd);
-    const sendTickets = fd.get("sendTickets") === "on";
-    const invalid = rows.filter((r) => r.errors.length).length;
-    let duplicates = 0;
-    const created: { token: string; row: Row }[] = [];
+    const { eventId, rows } = await parse(fd);
+    await markExisting(eventId, rows);
+    const valid = rows.filter((r) => !r.errors.length);
+    let imported = 0;
+    let updates = 0;
+    let conflicts = 0;
 
-    // Cada fila usa la misma función de inscripción (aforo y duplicados) en modo administrador:
-    // no exige que el evento esté publicado ni abierto. Toda la carga es una sola transacción.
+    // Inserta o actualiza por documento; un código ya usado por otra persona se omite sin abortar la carga.
     await transaction(async (client) => {
-      for (const r of rows) {
-        if (r.errors.length) continue;
+      for (const r of valid) {
+        await client.query("savepoint inv_row");
         try {
-          await client.query("savepoint import_row");
-          const res = await client.query<{ out_token: string }>(
-            "select out_token from register_attendee($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, true)",
-            [
-              dateId,
-              r.name,
-              r.email,
-              r.phone,
-              r.documentType,
-              r.document,
-              r.company || null,
-              r.jobTitle || null,
-              !!r.companionName,
-              r.companionName || null,
-              r.companionName ? r.companionType : null,
-              r.companionName ? r.companionDocument : null,
-            ],
+          const res = await client.query<{ inserted: boolean }>(
+            `insert into invitees (event_id, document_type, document_number, employee_code, full_name, email, phone, company, job_title)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             on conflict (event_id, document_type, document_number) do update set
+               employee_code = coalesce(excluded.employee_code, invitees.employee_code),
+               full_name     = excluded.full_name,
+               email         = coalesce(excluded.email, invitees.email),
+               phone         = coalesce(excluded.phone, invitees.phone),
+               company       = coalesce(excluded.company, invitees.company),
+               job_title     = coalesce(excluded.job_title, invitees.job_title)
+             returning (xmax = 0) as inserted`,
+            [eventId, r.documentType, r.document, r.code || null, r.name, r.email || null, r.phone || null, r.company || null, r.jobTitle || null],
           );
-          await client.query("release savepoint import_row");
-          created.push({ token: res.rows[0].out_token, row: r });
+          await client.query("release savepoint inv_row");
+          if (res.rows[0].inserted) imported++;
+          else updates++;
         } catch (e) {
-          await client.query("rollback to savepoint import_row");
-          await client.query("release savepoint import_row");
-          const message = pgMessage(e);
-          if (message.includes("DUPLICATE")) duplicates++;
-          else if (message.includes("SOLD_OUT")) throw Error("Aforo insuficiente: no se importó ninguna fila. Amplía el aforo de la fecha e inténtalo de nuevo.");
+          await client.query("rollback to savepoint inv_row");
+          await client.query("release savepoint inv_row");
+          if (pgCode(e) === "23505") conflicts++;
           else throw e;
         }
       }
     });
 
-    // Tickets por correo después de responder (no bloquea la pantalla del administrador)
-    if (sendTickets && created.length) {
-      const date = await queryOne<{ event_day: string; starts_at: string; ends_at: string }>(
-        "select event_day, starts_at::text, ends_at::text from event_dates where id = $1",
-        [dateId],
-      );
-      after(async () => {
-        const queue = [...created];
-        const worker = async () => {
-          for (let item = queue.shift(); item; item = queue.shift()) {
-            await sendConfirmationEmail({
-              to: item.row.email,
-              fullName: item.row.name,
-              eventName: event.name,
-              eventSlug: event.slug,
-              venue: event.venue,
-              brandColor: event.primary_color,
-              day: date!.event_day,
-              startsAt: date!.starts_at,
-              endsAt: date!.ends_at,
-              token: item.token,
-              companionName: item.row.companionName || null,
-            });
-          }
-        };
-        await Promise.all(Array.from({ length: 4 }, worker));
-      });
-    }
-
     revalidatePath("/admin/eventos/" + eventId);
+    revalidatePath("/admin/eventos/" + eventId + "/invitados");
     return {
       ok: true,
-      message: sendTickets
-        ? "Importación completada. Los tickets QR se están enviando por correo."
-        : "Importación completada. Los asistentes importados ya tienen ticket QR y aparecen en inscripciones.",
-      valid: created.length,
-      invalid,
-      duplicates,
-      imported: created.length,
-      emailed: sendTickets ? created.length : 0,
+      message:
+        `Base cargada. Nuevos: ${imported}. Actualizados: ${updates}.` +
+        (conflicts ? ` Omitidos por código duplicado: ${conflicts}.` : "") +
+        " Los invitados ya pueden confirmar su asistencia con su DNI o código.",
+      valid: imported + updates,
+      invalid: rows.length - valid.length + conflicts,
+      updates,
+      imported,
       preview: [],
     };
   } catch (e) {
     console.error("[commitImport]", e);
     const msg = e instanceof Error ? e.message : "";
-    // Mensajes propios se muestran; errores internos de la base no
     return empty(/^[A-ZÁÉÍÓÚ]/.test(msg) && !/^[A-Z_]+$/.test(msg) ? msg : "Error al importar. No se guardó ningún cambio.");
   }
 }

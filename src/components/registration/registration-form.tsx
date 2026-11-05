@@ -2,8 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, CalendarDays, Check, Clock, Loader2, UserPlus, Users } from "lucide-react";
-import { registerAttendee } from "@/app/evento/[slug]/actions";
+import {
+  AlertCircle, ArrowLeft, BadgeCheck, CalendarDays, Check, Clock, Loader2, Mail, Minus, Plus, Search, UserPlus,
+} from "lucide-react";
+import {
+  confirmRegistration, lookupInvitee, type InviteePreview,
+} from "@/app/evento/[slug]/actions";
 import { DOCUMENT_LABELS, DOCUMENT_TYPES } from "@/lib/validation";
 import { formatDay, formatTime } from "@/lib/format";
 import type { CompanionMode, DocumentType, PublicDateOption } from "@/lib/types";
@@ -13,55 +17,43 @@ const POLL_MS = 15_000;
 interface Props {
   slug: string;
   companionMode: CompanionMode;
+  maxCompanions: number;
   dates: PublicDateOption[];
 }
 
-interface FormState {
-  fullName: string;
-  email: string;
-  phone: string;
-  documentType: DocumentType;
-  documentNumber: string;
-  company: string;
-  jobTitle: string;
-  wantsCompanion: boolean;
-  companionFullName: string;
-  companionDocumentType: DocumentType;
-  companionDocumentNumber: string;
-}
+interface CompanionForm { fullName: string; documentType: DocumentType; documentNumber: string }
+const EMPTY_COMPANION: CompanionForm = { fullName: "", documentType: "DNI", documentNumber: "" };
 
-const EMPTY: FormState = {
-  fullName: "",
-  email: "",
-  phone: "",
-  documentType: "DNI",
-  documentNumber: "",
-  company: "",
-  jobTitle: "",
-  wantsCompanion: false,
-  companionFullName: "",
-  companionDocumentType: "DNI",
-  companionDocumentNumber: "",
-};
-
-export function RegistrationForm({ slug, companionMode, dates }: Props) {
+/**
+ * Paso 1: el asistente escribe su DNI o código de vendedor y traemos sus datos de la base.
+ * Paso 2: confirma el día al que asistirá (y acompañantes si el evento lo permite).
+ */
+export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: Props) {
   const router = useRouter();
-  const [form, setForm] = useState<FormState>(EMPTY);
+  const [code, setCode] = useState("");
+  const [invitee, setInvitee] = useState<InviteePreview | null>(null);
+  const [already, setAlready] = useState<{ maskedEmail: string; day: string } | null>(null);
   const [dateId, setDateId] = useState<string | null>(dates.length === 1 && dates[0].remaining > 0 ? dates[0].id : null);
   const [remaining, setRemaining] = useState<Record<string, number>>(() =>
     Object.fromEntries(dates.map((d) => [d.id, d.remaining])),
   );
   const [open, setOpen] = useState(true);
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const minCompanions = companionMode === "REQUIRED" ? 1 : 0;
+  const allowCompanions = companionMode !== "NONE" && maxCompanions > 0;
+  const [companions, setCompanions] = useState<CompanionForm[]>(() =>
+    Array.from({ length: minCompanions }, () => ({ ...EMPTY_COMPANION })),
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const errorRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (formError) errorRef.current?.focus(); }, [formError]);
 
-  const hasCompanion = companionMode === "REQUIRED" || (companionMode === "OPTIONAL" && form.wantsCompanion);
-  const seatsNeeded = hasCompanion ? 2 : 1;
+  const seatsNeeded = 1 + companions.length;
 
-  // --- Cupos en tiempo (casi) real: polling + al volver a la pestaña -------------------
+  // Cupos casi en tiempo real: polling + al volver a la pestaña
   const refreshAvailability = useCallback(async () => {
     try {
       const res = await fetch(`/api/public/events/${slug}/availability`, { cache: "no-store" });
@@ -88,83 +80,146 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
   const selectedDate = dates.find((d) => d.id === dateId);
   const selectedInsufficient = selectedLeft !== null && selectedLeft < seatsNeeded;
 
-  const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
-    setForm((f) => ({ ...f, [key]: value }));
+  function clearError(key: string) {
     setFormError(null);
     if (errors[key]) setErrors(({ [key]: _, ...rest }) => rest);
-  };
+  }
 
-  const fieldProps = (key: keyof FormState) => ({
-    id: key,
-    name: key,
-    value: form[key] as string,
-    "aria-invalid": Boolean(errors[key]) || undefined,
-    "aria-describedby": errors[key] ? `${key}-error` : undefined,
-    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => set(key, e.target.value as never),
-    className: "input",
-  });
-
-  function onSubmit(e: React.FormEvent) {
+  function onLookup(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
-    if (!dateId) {
-      setErrors((x) => ({ ...x, eventDateId: "Selecciona una fecha" }));
-      setFormError("Elige una fecha disponible antes de confirmar tu inscripción.");
-      return;
-    }
+    setAlready(null);
     startTransition(async () => {
       try {
-      const res = await registerAttendee(slug, {
-        eventDateId: dateId,
-        fullName: form.fullName,
-        email: form.email,
-        phone: form.phone,
-        documentType: form.documentType,
-        documentNumber: form.documentNumber,
-        company: form.company,
-        jobTitle: form.jobTitle,
-        hasCompanion,
-        companionFullName: hasCompanion ? form.companionFullName : undefined,
-        companionDocumentType: hasCompanion ? form.companionDocumentType : undefined,
-        companionDocumentNumber: hasCompanion ? form.companionDocumentNumber : undefined,
-      });
-      if (res.ok) {
-        router.push(`/evento/${slug}/ticket/${res.token}?nuevo=1`);
-        return;
-      }
-      setErrors(res.fieldErrors ?? {});
-      setFormError(res.message);
-      if (res.code === "SOLD_OUT" || res.code === "DATE_NOT_FOUND") {
-        setDateId(null);
-        refreshAvailability();
-      }
-      document.getElementById("form-top")?.scrollIntoView({ behavior: "smooth" });
+        const res = await lookupInvitee(slug, code);
+        if (res.state === "FOUND") {
+          setInvitee(res.invitee);
+          setErrors({});
+        } else if (res.state === "REGISTERED") {
+          setAlready({ maskedEmail: res.maskedEmail, day: res.day });
+        } else {
+          setFormError(res.message);
+        }
       } catch {
-        setFormError("No pudimos confirmar la inscripción. Conservamos tus datos en este formulario. Si se interrumpió la conexión, revisa tu correo o recupera tu QR antes de volver a intentarlo.");
+        setFormError("No pudimos consultar tus datos. Revisa tu conexión e inténtalo nuevamente.");
       }
     });
   }
 
-  if (!open) {
-    return <Notice>Las inscripciones para este evento están cerradas.</Notice>;
-  }
-  if (dates.length === 0) {
-    return <Notice>No hay fechas disponibles por el momento.</Notice>;
+  function onConfirm(e: React.FormEvent) {
+    e.preventDefault();
+    if (!invitee) return;
+    setFormError(null);
+    if (!dateId) {
+      setErrors((x) => ({ ...x, eventDateId: "Selecciona un día" }));
+      setFormError("Elige el día al que asistirás.");
+      return;
+    }
+    startTransition(async () => {
+      try {
+        const res = await confirmRegistration(slug, {
+          inviteeId: invitee.id,
+          eventDateId: dateId,
+          email: invitee.needsEmail ? email : "",
+          phone: invitee.needsPhone ? phone : "",
+          companions,
+        });
+        if (res.ok) {
+          router.push(`/evento/${slug}/ticket/${res.token}?nuevo=1`);
+          return;
+        }
+        setErrors(res.fieldErrors ?? {});
+        setFormError(res.message);
+        if (res.code === "SOLD_OUT" || res.code === "DATE_NOT_FOUND") {
+          setDateId(null);
+          refreshAvailability();
+        }
+        document.getElementById("form-top")?.scrollIntoView({ behavior: "smooth" });
+      } catch {
+        setFormError("No pudimos confirmar la inscripción. Si se interrumpió la conexión, revisa tu correo antes de volver a intentarlo.");
+      }
+    });
   }
 
-  return (
-    <form onSubmit={onSubmit} noValidate className="space-y-8" id="form-top">
-      <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:p-5"><h2 className="text-xl font-bold tracking-tight">Reserva tu lugar</h2><p className="mt-1 text-sm leading-relaxed text-slate-600">Elige una fecha y completa tus datos tal como aparecen en tu documento. Los campos opcionales están indicados.</p><p className="mt-2 text-xs font-medium text-slate-500">Sin crear una cuenta · Ticket QR al finalizar</p></div>
-      {formError && (
-        <div ref={errorRef} tabIndex={-1} role="alert" className="flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-          <AlertCircle className="mt-0.5 size-5 shrink-0" />
-          <p>{formError}</p>
+  if (!open) return <Notice>Las inscripciones para este evento están cerradas.</Notice>;
+  if (dates.length === 0) return <Notice>No hay fechas disponibles por el momento.</Notice>;
+
+  const errorBox = formError && (
+    <div ref={errorRef} tabIndex={-1} role="alert" className="flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+      <AlertCircle className="mt-0.5 size-5 shrink-0" />
+      <p>{formError}</p>
+    </div>
+  );
+
+  /* ---------------- Paso 1: identificación ---------------- */
+  if (!invitee) {
+    return (
+      <form onSubmit={onLookup} noValidate className="space-y-6" id="form-top">
+        <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:p-5">
+          <h2 className="text-xl font-bold tracking-tight">Confirma tu asistencia</h2>
+          <p className="mt-1 text-sm leading-relaxed text-slate-600">
+            Ingresa tu número de documento o tu código de vendedor. Tus datos ya están registrados por el organizador.
+          </p>
         </div>
-      )}
+        {errorBox}
+        {already && (
+          <div role="status" className="flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+            <Mail className="mt-0.5 size-5 shrink-0" />
+            <div>
+              <p className="font-semibold">Ya estás inscrito para el {formatDay(already.day)}.</p>
+              <p className="mt-1">Te reenviamos tu ticket con el código QR a {already.maskedEmail}. Revisa también la carpeta de spam.</p>
+            </div>
+          </div>
+        )}
+        <div>
+          <label htmlFor="code" className="label">DNI o código de vendedor</label>
+          <input
+            id="code"
+            name="code"
+            className="input text-lg tracking-wide"
+            value={code}
+            onChange={(e) => { setCode(e.target.value); setFormError(null); setAlready(null); }}
+            autoComplete="off"
+            autoFocus
+            placeholder="Ej: 45678912 o V-1023"
+            maxLength={30}
+          />
+        </div>
+        <button type="submit" className="btn-brand w-full py-3.5 text-base" disabled={pending || code.trim().length < 3}>
+          {pending ? <Loader2 className="size-5 animate-spin" /> : <Search className="size-5" />}
+          {pending ? "Buscando…" : "Continuar"}
+        </button>
+      </form>
+    );
+  }
 
-      {/* 1. Fecha ------------------------------------------------------------------ */}
-      <Section number={1} title="Elige tu fecha" icon={<CalendarDays className="size-4" />}>
-        <div role="group" aria-label="Fechas disponibles, selecciona una" className="grid gap-3 sm:grid-cols-2">
+  /* ---------------- Paso 2: día y acompañantes ---------------- */
+  return (
+    <form onSubmit={onConfirm} noValidate className="space-y-8" id="form-top">
+      <div className="flex items-start gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 sm:p-5">
+        <BadgeCheck className="mt-0.5 size-6 shrink-0 text-emerald-600" />
+        <div className="min-w-0 flex-1">
+          <p className="text-lg font-bold leading-tight">Hola, {invitee.fullName}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {DOCUMENT_LABELS[invitee.documentType]} {invitee.maskedDocument}
+            {invitee.employeeCode && <> · <span className="whitespace-nowrap">Código {invitee.employeeCode}</span></>}
+            {invitee.company && ` · ${invitee.company}`}
+          </p>
+          {invitee.maskedEmail && <p className="mt-1 text-sm text-slate-500">Enviaremos tu ticket a {invitee.maskedEmail}</p>}
+        </div>
+        <button
+          type="button"
+          onClick={() => { setInvitee(null); setFormError(null); setErrors({}); }}
+          className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800"
+        >
+          <ArrowLeft className="size-4" /> No soy yo
+        </button>
+      </div>
+
+      {errorBox}
+
+      <Section number={1} title="¿Qué día asistirás?" icon={<CalendarDays className="size-4" />}>
+        <div role="group" aria-label="Días disponibles, selecciona uno" className="grid gap-3 sm:grid-cols-2">
           {dates.map((d) => {
             const left = remaining[d.id] ?? 0;
             const disabled = left < seatsNeeded;
@@ -176,18 +231,12 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
                 type="button"
                 aria-pressed={selected}
                 disabled={disabled}
-                onClick={() => {
-                  setDateId(d.id);
-                  setFormError(null);
-                  setErrors(({ eventDateId: _, ...rest }) => rest);
-                }}
+                onClick={() => { setDateId(d.id); clearError("eventDateId"); }}
                 className={[
                   "relative rounded-xl border-2 p-4 text-left transition",
                   selected ? "border-brand bg-brand/5 ring-4 ring-brand/10" : "border-slate-200 bg-white hover:border-slate-300",
                   disabled && "cursor-not-allowed opacity-50 hover:border-slate-200",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
+                ].filter(Boolean).join(" ")}
               >
                 {selected && (
                   <span className="absolute right-3 top-3 grid size-6 place-items-center rounded-full bg-brand text-brand-fg">
@@ -200,16 +249,11 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
                   <Clock className="size-3.5" />
                   {formatTime(d.starts_at)} – {formatTime(d.ends_at)}
                 </p>
-                <p
-                  className={[
-                    "mt-3 text-sm font-medium",
-                    left === 0 ? "text-red-600" : low ? "text-amber-600" : "text-emerald-700",
-                  ].join(" ")}
-                >
+                <p className={["mt-3 text-sm font-medium", left === 0 ? "text-red-600" : low ? "text-amber-600" : "text-emerald-700"].join(" ")}>
                   {left === 0
                     ? "Agotado"
                     : disabled
-                      ? "Solo queda 1 cupo (no alcanza con acompañante)"
+                      ? `Quedan ${left} cupos (no alcanza para ${seatsNeeded} personas)`
                       : `${left} ${left === 1 ? "cupo disponible" : "cupos disponibles"}`}
                 </p>
               </button>
@@ -217,112 +261,110 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
           })}
         </div>
         {errors.eventDateId && <FieldError>{errors.eventDateId}</FieldError>}
-        {selectedInsufficient && (
-          <FieldError>La fecha elegida ya no tiene cupos suficientes. Elige otra.</FieldError>
-        )}
+        {selectedInsufficient && <FieldError>El día elegido ya no tiene cupos suficientes. Elige otro.</FieldError>}
       </Section>
 
-      {/* 2. Titular ---------------------------------------------------------------- */}
-      <Section number={2} title="Tus datos" icon={<Users className="size-4" />}>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Nombre completo" error={errors.fullName} className="sm:col-span-2">
-            <input {...fieldProps("fullName")} autoComplete="name" placeholder="Como figura en tu documento" />
-          </Field>
-          <Field label="Correo electrónico" error={errors.email}>
-            <input {...fieldProps("email")} type="email" autoComplete="email" inputMode="email" placeholder="nombre@empresa.com" />
-          </Field>
-          <Field label="Teléfono / celular" error={errors.phone}>
-            <input {...fieldProps("phone")} type="tel" autoComplete="tel" inputMode="tel" placeholder="+51 999 999 999" />
-          </Field>
-          <Field label="Tipo de documento" error={errors.documentType}>
-            <select {...fieldProps("documentType")}>
-              {DOCUMENT_TYPES.map((t) => (
-                <option key={t} value={t}>{DOCUMENT_LABELS[t]}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Número de documento" error={errors.documentNumber}>
-            <input
-              {...fieldProps("documentNumber")}
-              inputMode={form.documentType === "DNI" || form.documentType === "CEDULA" ? "numeric" : "text"}
-              autoComplete="off"
-            />
-          </Field>
-          <Field label="Empresa (opcional)" error={errors.company}>
-            <input {...fieldProps("company")} autoComplete="organization" />
-          </Field>
-          <Field label="Cargo (opcional)" error={errors.jobTitle}>
-            <input {...fieldProps("jobTitle")} autoComplete="organization-title" />
-          </Field>
-        </div>
-      </Section>
+      {(invitee.needsEmail || invitee.needsPhone) && (
+        <Section number={2} title="Datos de contacto" icon={<Mail className="size-4" />}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {invitee.needsEmail && (
+              <Field id="email" label="Correo electrónico" error={errors.email}>
+                <input id="email" type="email" inputMode="email" autoComplete="email" className="input"
+                  value={email} onChange={(e) => { setEmail(e.target.value); clearError("email"); }} placeholder="nombre@empresa.com" />
+              </Field>
+            )}
+            {invitee.needsPhone && (
+              <Field id="phone" label="Celular" error={errors.phone}>
+                <input id="phone" type="tel" inputMode="tel" autoComplete="tel" className="input"
+                  value={phone} onChange={(e) => { setPhone(e.target.value); clearError("phone"); }} placeholder="+51 999 999 999" />
+              </Field>
+            )}
+          </div>
+        </Section>
+      )}
 
-      {/* 3. Acompañante ------------------------------------------------------------ */}
-      {companionMode !== "NONE" && (
+      {allowCompanions && (
         <Section
-          number={3}
-          title={companionMode === "REQUIRED" ? "Datos de tu acompañante" : "Acompañante"}
+          number={invitee.needsEmail || invitee.needsPhone ? 3 : 2}
+          title={companionMode === "REQUIRED" ? "Tus acompañantes" : "¿Vienes con acompañantes?"}
           icon={<UserPlus className="size-4" />}
         >
-          {companionMode === "OPTIONAL" && (
-            <label className="mb-4 flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <input
-                type="checkbox"
-                checked={form.wantsCompanion}
-                onChange={(e) => set("wantsCompanion", e.target.checked)}
-                className="size-5 accent-[var(--brand)]"
-              />
-              <span className="text-sm">
-                <span className="font-medium">Asistiré con un acompañante</span>
-                <span className="block text-slate-500">Ocupa un cupo adicional en la fecha elegida.</span>
-              </span>
-            </label>
-          )}
-          {hasCompanion && (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Nombre completo del acompañante" error={errors.companionFullName} className="sm:col-span-2">
-                <input {...fieldProps("companionFullName")} autoComplete="off" />
-              </Field>
-              <Field label="Tipo de documento" error={errors.companionDocumentType}>
-                <select {...fieldProps("companionDocumentType")}>
-                  {DOCUMENT_TYPES.map((t) => (
-                    <option key={t} value={t}>{DOCUMENT_LABELS[t]}</option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Número de documento" error={errors.companionDocumentNumber}>
-                <input {...fieldProps("companionDocumentNumber")} autoComplete="off" />
-              </Field>
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-sm">
+              <p className="font-medium">
+                {companions.length === 0 ? "Asistiré solo" : `${companions.length} ${companions.length === 1 ? "acompañante" : "acompañantes"}`}
+              </p>
+              <p className="text-slate-500">Máximo {maxCompanions}. Cada acompañante ocupa un cupo.</p>
             </div>
-          )}
+            <div className="flex items-center gap-2">
+              <button type="button" className="btn-ghost size-10 p-0" aria-label="Quitar acompañante"
+                disabled={companions.length <= minCompanions}
+                onClick={() => setCompanions((c) => c.slice(0, -1))}>
+                <Minus className="size-4" />
+              </button>
+              <span className="w-6 text-center font-semibold tabular-nums">{companions.length}</span>
+              <button type="button" className="btn-ghost size-10 p-0" aria-label="Agregar acompañante"
+                disabled={companions.length >= maxCompanions}
+                onClick={() => setCompanions((c) => [...c, { ...EMPTY_COMPANION }])}>
+                <Plus className="size-4" />
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-4">
+            {companions.map((c, i) => {
+              const set = (patch: Partial<CompanionForm>, key: string) => {
+                setCompanions((list) => list.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+                clearError(`companions.${i}.${key}`);
+              };
+              return (
+                <div key={i} className="rounded-xl border border-slate-200 p-4">
+                  <p className="mb-3 text-sm font-semibold text-slate-700">Acompañante {i + 1}</p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field id={`c${i}-name`} label="Nombre completo" error={errors[`companions.${i}.fullName`]} className="sm:col-span-2">
+                      <input id={`c${i}-name`} className="input" autoComplete="off" value={c.fullName}
+                        onChange={(e) => set({ fullName: e.target.value }, "fullName")} />
+                    </Field>
+                    <Field id={`c${i}-type`} label="Tipo de documento" error={errors[`companions.${i}.documentType`]}>
+                      <select id={`c${i}-type`} className="input" value={c.documentType}
+                        onChange={(e) => set({ documentType: e.target.value as DocumentType }, "documentType")}>
+                        {DOCUMENT_TYPES.map((t) => <option key={t} value={t}>{DOCUMENT_LABELS[t]}</option>)}
+                      </select>
+                    </Field>
+                    <Field id={`c${i}-doc`} label="Número de documento" error={errors[`companions.${i}.documentNumber`]}>
+                      <input id={`c${i}-doc`} className="input" autoComplete="off" value={c.documentNumber}
+                        inputMode={c.documentType === "DNI" || c.documentType === "CEDULA" ? "numeric" : "text"}
+                        onChange={(e) => set({ documentNumber: e.target.value }, "documentNumber")} />
+                    </Field>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </Section>
       )}
 
       <div className="space-y-3">
-        {selectedDate && <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700"><p className="font-semibold">Tu selección</p><p className="mt-1">{formatDay(selectedDate.event_day)} · {formatTime(selectedDate.starts_at)}</p><p className="mt-1 text-slate-500">{hasCompanion ? "2 personas: titular y acompañante" : "1 persona: titular"}</p></div>}
+        {selectedDate && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <p className="font-semibold">Tu selección</p>
+            <p className="mt-1">{formatDay(selectedDate.event_day)} · {formatTime(selectedDate.starts_at)}</p>
+            <p className="mt-1 text-slate-500">
+              {seatsNeeded === 1 ? "1 persona: tú" : `${seatsNeeded} personas: tú y ${companions.length} ${companions.length === 1 ? "acompañante" : "acompañantes"}`}
+            </p>
+          </div>
+        )}
         <button type="submit" className="btn-brand w-full py-3.5 text-base" disabled={pending || selectedInsufficient}>
           {pending ? <Loader2 className="size-5 animate-spin" /> : <Check className="size-5" />}
-          {pending ? "Reservando tu lugar…" : "Confirmar mi inscripción"}
+          {pending ? "Confirmando…" : "Confirmar mi asistencia"}
         </button>
-        <p className="text-center text-xs text-slate-500">
-          Recibirás tu ticket con código QR en pantalla y por correo electrónico.
-        </p>
+        <p className="text-center text-xs text-slate-500">Recibirás tu ticket con código QR en pantalla y por correo electrónico.</p>
       </div>
     </form>
   );
 }
 
-function Section({
-  number,
-  title,
-  icon,
-  children,
-}: {
-  number: number;
-  title: string;
-  icon: React.ReactNode;
-  children: React.ReactNode;
-}) {
+function Section({ number, title, icon, children }: { number: number; title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <fieldset>
       <legend className="mb-4 flex items-center gap-2.5 text-lg font-semibold">
@@ -335,22 +377,12 @@ function Section({
   );
 }
 
-function Field({
-  label,
-  error,
-  className,
-  children,
-}: {
-  label: string;
-  error?: string;
-  className?: string;
-  children: React.ReactElement<{ id: string }>;
-}) {
+function Field({ id, label, error, className, children }: { id: string; label: string; error?: string; className?: string; children: React.ReactNode }) {
   return (
     <div className={className}>
-      <label className="label" htmlFor={children.props.id}>{label}</label>
+      <label className="label" htmlFor={id}>{label}</label>
       {children}
-      {error && <p id={`${children.props.id}-error`} className="mt-1.5 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-1.5 text-sm text-red-600">{error}</p>}
     </div>
   );
 }

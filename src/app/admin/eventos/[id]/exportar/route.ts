@@ -25,7 +25,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 
   const dates = await query<EventDate>("select * from event_dates where event_id = $1", [id]);
   const dateById = new Map(dates.map((d) => [d.id, d]));
-  const rows = await query<Registration & { checked_in_by_label: string | null }>(
+  const rows = await query<Registration & { checked_in_by_label: string | null; companions_in: number; companions_list: string | null }>(
     withCheckinBy(
       `select * from registrations where event_id = $1 and ($2::uuid is null or event_date_id = $2)`,
       "r.created_at",
@@ -46,12 +46,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     { header: "Teléfono", key: "phone", width: 16 },
     { header: "Empresa", key: "company", width: 24 },
     { header: "Cargo", key: "job_title", width: 22 },
-    { header: "Acompañante", key: "companion_full_name", width: 28 },
-    { header: "Tipo doc. acomp.", key: "companion_document_type", width: 15 },
-    { header: "N° doc. acomp.", key: "companion_document_number", width: 15 },
+    { header: "Código vendedor", key: "employee_code", width: 15 },
+    { header: "N° acompañantes", key: "companions_count", width: 15 },
+    { header: "Acompañantes", key: "companions_list", width: 44 },
     { header: "Estado", key: "status", width: 12 },
     { header: "Ingreso titular", key: "holder_in", width: 17 },
-    { header: "Ingreso acompañante", key: "companion_in", width: 19 },
+    { header: "Acompañantes ingresados", key: "companions_in", width: 22 },
     { header: "Acreditado por", key: "checked_in_by", width: 24 },
     { header: "Fecha de registro", key: "created", width: 17 },
   ] as const;
@@ -70,12 +70,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       phone: r.phone,
       company: r.company ?? "",
       job_title: r.job_title ?? "",
-      companion_full_name: r.companion_full_name ?? "",
-      companion_document_type: r.companion_document_type ?? "",
-      companion_document_number: r.companion_document_number ?? "",
+      employee_code: r.employee_code ?? "",
+      companions_count: String(r.companions_count),
+      companions_list: r.companions_list ?? "",
       status: STATUS[r.status],
       holder_in: r.holder_checked_in_at ? formatDateTime(r.holder_checked_in_at, tz) : "",
-      companion_in: r.companion_checked_in_at ? formatDateTime(r.companion_checked_in_at, tz) : "",
+      companions_in: String(r.companions_in),
       checked_in_by: r.checked_in_by_label ?? "",
       created: formatDateTime(r.created_at, tz),
     };
@@ -130,10 +130,41 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       capacity: d.capacity,
       taken: d.registered_count,
       regs: rs.length,
-      in: rs.reduce((n, r) => n + (r.holder_checked_in_at ? 1 : 0) + (r.companion_checked_in_at ? 1 : 0), 0),
+      in: rs.reduce((n, r) => n + (r.holder_checked_in_at ? 1 : 0) + r.companions_in, 0),
     });
   }
   summary.getRow(1).font = { bold: true };
+
+  // Bitácora de acreditación: cada intento con su resultado y quién lo hizo
+  const log = await query<{ created_at: string; result: string; method: string; persons: number; employee: string | null; person: string | null; detail: string | null }>(
+    `select l.created_at, l.result, l.method, l.persons, em.full_name as employee, r.full_name as person, l.detail
+       from checkin_log l
+       left join employees em on em.id = l.employee_id
+       left join registrations r on r.id = l.registration_id
+      where l.event_id = $1 and ($2::uuid is null or l.event_date_id = $2)
+      order by l.created_at`,
+    [id, dateFilter],
+  );
+  const RESULT: Record<string, string> = {
+    INGRESO: "Ingreso", YA_INGRESO: "Ya había ingresado", FECHA_INCORRECTA: "Otra fecha", CANCELADO: "Cancelado", NO_ENCONTRADO: "No encontrado",
+  };
+  const logSheet = wb.addWorksheet("Bitácora");
+  logSheet.columns = [
+    { header: "Fecha y hora", key: "at", width: 18 },
+    { header: "Resultado", key: "result", width: 20 },
+    { header: "Método", key: "method", width: 12 },
+    { header: "Personas", key: "persons", width: 10 },
+    { header: "Asistente", key: "person", width: 30 },
+    { header: "Acreditado por", key: "employee", width: 28 },
+    { header: "Detalle", key: "detail", width: 30 },
+  ];
+  for (const l of log) {
+    logSheet.addRow({
+      at: formatDateTime(l.created_at, tz), result: RESULT[l.result] ?? l.result, method: l.method, persons: l.persons,
+      person: l.person ?? "", employee: l.employee ?? "Enlace general", detail: l.detail ?? "",
+    });
+  }
+  logSheet.getRow(1).font = { bold: true };
 
   const buffer = await wb.xlsx.writeBuffer();
   return new Response(buffer as ArrayBuffer, {

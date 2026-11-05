@@ -27,7 +27,7 @@ export default async function TicketPage({ params, searchParams }: Props) {
     document_type: DocumentType;
     document_number: string;
     company: string | null;
-    companion_full_name: string | null;
+    companions: { full_name: string; checked_in: boolean }[];
     holder_checked_in_at: string | null;
     slug: string;
     name: string;
@@ -40,7 +40,9 @@ export default async function TicketPage({ params, searchParams }: Props) {
     label: string | null;
   }>(
     `select r.token, r.status, r.full_name, r.email, r.document_type, r.document_number, r.company,
-            r.companion_full_name, r.holder_checked_in_at,
+            r.holder_checked_in_at,
+            coalesce((select json_agg(json_build_object('full_name', c.full_name, 'checked_in', c.checked_in_at is not null) order by c.position)
+                        from companions c where c.registration_id = r.id), '[]') as companions,
             e.slug, e.name, e.venue, e.logo_url, e.primary_color,
             d.event_day, d.starts_at::text, d.ends_at::text, d.label
        from registrations r
@@ -61,7 +63,7 @@ export default async function TicketPage({ params, searchParams }: Props) {
     documentType: r.document_type,
     documentNumber: r.document_number,
     company: r.company,
-    companionFullName: r.companion_full_name,
+    companions: r.companions.map((c) => ({ fullName: c.full_name, checkedIn: c.checked_in })),
     eventName: event.name,
     venue: event.venue,
     logoUrl: event.logo_url,

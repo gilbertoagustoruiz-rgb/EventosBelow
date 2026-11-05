@@ -2,7 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { KeyRound, Pencil, UserPlus } from "lucide-react";
-import { createEmployee, resetEmployeePassword, updateEmployee } from "./actions";
+import { createEmployee, createEmployeeAccess, resetEmployeePassword, updateEmployee } from "./actions";
 import type { FormState } from "@/app/admin/actions";
 import { FieldError, FormMessage, SubmitButton, TempPassword } from "@/components/admin/ui";
 import { DOCUMENT_LABELS, DOCUMENT_TYPES } from "@/lib/validation";
@@ -13,6 +13,7 @@ export function EmployeeForm({ tenants }: { tenants: { id: string; name: string 
   const [profile, setProfile] = useState<Profile>("PROMOTOR");
   const ref = useRef<HTMLFormElement>(null);
   const e = state.fieldErrors ?? {};
+  const staff = profile === "SUPERVISOR" || profile === "PROMOTOR";
 
   useEffect(() => {
     if (state.ok) {
@@ -25,7 +26,7 @@ export function EmployeeForm({ tenants }: { tenants: { id: string; name: string 
     <form ref={ref} action={action} className="space-y-5">
       <fieldset>
         <legend className="label">Perfil</legend>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           {PROFILE_ORDER.map((p) => (
             <label
               key={p}
@@ -57,14 +58,14 @@ export function EmployeeForm({ tenants }: { tenants: { id: string; name: string 
         </div>
         <div>
           <label className="label" htmlFor="e-doc">
-            Número de documento{profile === "PROMOTOR" ? "" : " (opcional)"}
+            Número de documento{staff ? " (será su usuario)" : " (opcional)"}
           </label>
           <input id="e-doc" name="documentNumber" className="input" inputMode="numeric" aria-invalid={Boolean(e.documentNumber) || undefined} />
           <FieldError error={e.documentNumber} />
         </div>
         <div>
           <label className="label" htmlFor="e-email">
-            Correo{profile === "PROMOTOR" ? " (opcional)" : " (será su usuario)"}
+            Correo{staff ? " (opcional)" : " (será su usuario)"}
           </label>
           <input id="e-email" name="email" type="email" className="input" aria-invalid={Boolean(e.email) || undefined} />
           <FieldError error={e.email} />
@@ -75,9 +76,16 @@ export function EmployeeForm({ tenants }: { tenants: { id: string; name: string 
         </div>
       </div>
 
-      {profile !== "ADMINISTRADOR" && tenants.length > 0 && (
+      {staff && (
+        <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+          Los {profile === "SUPERVISOR" ? "supervisores" : "promotores"} se agregan a cada evento desde el propio evento
+          (coordinador o supervisor). Ingresan con su DNI o correo y la contraseña temporal.
+        </p>
+      )}
+
+      {profile === "COORDINADOR" && tenants.length > 0 && (
         <fieldset>
-          <legend className="label">Asignar a clientes (opcional, también puedes hacerlo en Asignaciones)</legend>
+          <legend className="label">Clientes que coordinará (también puedes hacerlo en Coordinadores)</legend>
           <div className="flex flex-wrap gap-2">
             {tenants.map((t) => (
               <label key={t.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm has-[:checked]:border-indigo-600 has-[:checked]:bg-indigo-50">
@@ -148,6 +156,27 @@ export function ResetPassword({ id }: { id: string }) {
         <input type="hidden" name="id" value={id} />
         <button className="flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-sm text-slate-600 hover:bg-slate-100">
           <KeyRound className="size-4" /> Nueva contraseña
+        </button>
+      </form>
+      {state.tempPassword && (
+        <div className="basis-full">
+          <TempPassword message={state.message} password={state.tempPassword} />
+        </div>
+      )}
+      {state.message && !state.ok && <span className="text-xs text-red-600">{state.message}</span>}
+    </div>
+  );
+}
+
+/** Crea el acceso (usuario y contraseña temporal) de un empleado que no lo tiene. */
+export function CreateAccess({ id }: { id: string }) {
+  const [state, action] = useActionState<FormState, FormData>(createEmployeeAccess, {});
+  return (
+    <div className="contents">
+      <form action={action}>
+        <input type="hidden" name="id" value={id} />
+        <button className="flex min-h-9 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50">
+          <KeyRound className="size-4" /> Crear acceso
         </button>
       </form>
       {state.tempPassword && (

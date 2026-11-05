@@ -3,7 +3,7 @@ import { requireAdmin } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { PROFILES, PROFILE_ORDER, type Profile } from "@/lib/profiles";
 import { ConfirmButton } from "@/components/admin/ui";
-import { EditEmployee, EmployeeForm, ResetPassword } from "./forms";
+import { CreateAccess, EditEmployee, EmployeeForm, ResetPassword } from "./forms";
 import { setEmployeeActive } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
       `select e.id, e.profile, e.full_name, e.document_type, e.document_number, e.email, e.phone, e.user_id, e.is_active,
               u.must_change_password, u.last_login_at,
               array_remove(array_agg(distinct t.name), null) as clients,
-              (select count(*) from event_promoters ep where ep.employee_id = e.id and ep.is_active)::int as events
+              (select count(*) from event_staff es where es.employee_id = e.id and es.is_active)::int as events
          from employees e
          left join users u on u.id = e.user_id
          left join employee_clients ec on ec.employee_id = e.id
@@ -57,8 +57,8 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Empleados</h1>
         <p className="mt-2 text-slate-600">
-          Directorio único del personal de Below. Los administradores y coordinadores ingresan con correo y contraseña;
-          los promotores acreditan con el enlace que reciben en cada evento.
+          Directorio único del personal de Below. Todos ingresan con correo o DNI y contraseña. Los coordinadores se asignan
+          a clientes; supervisores y promotores, a cada evento.
         </p>
       </div>
 
@@ -93,23 +93,24 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                 <p className="text-xs text-slate-500">
                   {e.profile === "ADMINISTRADOR"
                     ? "Acceso a todos los clientes"
-                    : e.clients?.length
-                      ? `Clientes: ${e.clients.join(", ")}`
-                      : "Sin clientes asignados"}
-                  {e.profile === "PROMOTOR" && ` · ${e.events} evento(s) activos`}
+                    : e.profile === "COORDINADOR"
+                      ? e.clients?.length ? `Clientes: ${e.clients.join(", ")}` : "Sin clientes asignados"
+                      : `${e.events} evento(s) activos`}
+                  {!e.user_id && " · sin acceso creado"}
                   {e.user_id && e.must_change_password && " · aún no cambia su contraseña temporal"}
                 </p>
               </div>
               <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${badge[e.profile]}`}>{PROFILES[e.profile].label}</span>
               <EditEmployee employee={e} />
               {e.user_id && e.user_id !== viewer.userId && e.is_active && <ResetPassword id={e.id} />}
+              {!e.user_id && e.is_active && <CreateAccess id={e.id} />}
               {e.user_id !== viewer.userId && (
                 <form action={setEmployeeActive}>
                   <input type="hidden" name="id" value={e.id} />
                   <input type="hidden" name="active" value={String(!e.is_active)} />
                   {e.is_active ? (
                     <ConfirmButton
-                      message={`¿Desactivar a ${e.full_name}? ${e.user_id ? "Perderá el acceso al panel" : "Sus enlaces de acreditación dejarán de funcionar"} de inmediato.`}
+                      message={`¿Desactivar a ${e.full_name}? Perderá el acceso y saldrá del personal de sus eventos de inmediato.`}
                       className="min-h-9 rounded-lg px-2 text-sm font-medium text-red-600 hover:bg-red-50"
                     >
                       Desactivar
@@ -131,6 +132,7 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
 const badge: Record<Profile, string> = {
   ADMINISTRADOR: "bg-indigo-50 text-indigo-700",
   COORDINADOR: "bg-sky-50 text-sky-700",
+  SUPERVISOR: "bg-amber-50 text-amber-700",
   PROMOTOR: "bg-emerald-50 text-emerald-700",
 };
 

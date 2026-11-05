@@ -23,7 +23,7 @@ export default async function ProfilesPage() {
         </p>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         {PROFILE_ORDER.map((p) => {
           const info = PROFILES[p];
           const c = counts.find((x) => x.profile === p);

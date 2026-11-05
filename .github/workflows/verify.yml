@@ -35,5 +35,5 @@ jobs:
       - run: npm run typecheck
       - run: npm run db:migrate
       - name: Pruebas de base de datos (importación y promotores)
-        run: node --test tests/import-db.test.mjs tests/promoters-db.test.mjs
+        run: node --test tests/flow-db.test.mjs
       - run: npm run build

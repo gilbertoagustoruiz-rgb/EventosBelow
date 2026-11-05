@@ -29,6 +29,40 @@ const optionalText = (max: number) =>
     .optional()
     .transform((v) => (v ? v : undefined));
 
+/** Valida un número según su tipo de documento. */
+export function documentIssue(type: (typeof DOCUMENT_TYPES)[number], number: string | undefined) {
+  const rule = DOCUMENT_RULES[type];
+  return !number || !rule.re.test(number) ? rule.hint : null;
+}
+
+export const companionSchema = z.object({
+  fullName: z.string().trim().min(3, "Ingresa el nombre del acompañante").max(120),
+  documentType: z.enum(DOCUMENT_TYPES),
+  documentNumber: normDoc,
+});
+
+const companionsList = z.array(companionSchema).max(10).default([]);
+
+/** Revisa documentos de acompañantes: formato, distinto del titular y sin repetirse. */
+function checkCompanions(
+  holder: { documentType: string; documentNumber: string } | null,
+  companions: z.infer<typeof companionSchema>[],
+  ctx: z.RefinementCtx,
+) {
+  const seen = new Set<string>();
+  companions.forEach((c, i) => {
+    const issue = documentIssue(c.documentType, c.documentNumber);
+    if (issue) ctx.addIssue({ code: "custom", path: ["companions", i, "documentNumber"], message: issue });
+    else if (holder && c.documentNumber === holder.documentNumber && c.documentType === holder.documentType) {
+      ctx.addIssue({ code: "custom", path: ["companions", i, "documentNumber"], message: "El acompañante no puede tener el mismo documento del titular" });
+    } else if (seen.has(c.documentType + c.documentNumber)) {
+      ctx.addIssue({ code: "custom", path: ["companions", i, "documentNumber"], message: "Documento repetido entre acompañantes" });
+    }
+    seen.add(c.documentType + c.documentNumber);
+  });
+}
+
+/** Inscripción completa (titular + acompañantes). */
 export const registrationSchema = z
   .object({
     eventDateId: z.string().uuid({ message: "Selecciona una fecha" }),
@@ -40,41 +74,32 @@ export const registrationSchema = z
       .regex(/^\+?[0-9\s-]{7,20}$/, "Teléfono no válido"),
     documentType: z.enum(DOCUMENT_TYPES),
     documentNumber: normDoc,
+    employeeCode: optionalText(40),
     company: optionalText(120),
     jobTitle: optionalText(120),
-    hasCompanion: z.boolean(),
-    companionFullName: optionalText(120),
-    companionDocumentType: z.enum(DOCUMENT_TYPES).optional(),
-    companionDocumentNumber: normDoc.optional(),
+    companions: companionsList,
   })
   .superRefine((d, ctx) => {
-    const holderRule = DOCUMENT_RULES[d.documentType];
-    if (!holderRule.re.test(d.documentNumber)) {
-      ctx.addIssue({ code: "custom", path: ["documentNumber"], message: holderRule.hint });
-    }
-    if (!d.hasCompanion) return;
-
-    if (!d.companionFullName || d.companionFullName.length < 3) {
-      ctx.addIssue({ code: "custom", path: ["companionFullName"], message: "Ingresa el nombre del acompañante" });
-    }
-    if (!d.companionDocumentType) {
-      ctx.addIssue({ code: "custom", path: ["companionDocumentType"], message: "Selecciona el tipo de documento" });
-      return;
-    }
-    const rule = DOCUMENT_RULES[d.companionDocumentType];
-    if (!d.companionDocumentNumber || !rule.re.test(d.companionDocumentNumber)) {
-      ctx.addIssue({ code: "custom", path: ["companionDocumentNumber"], message: rule.hint });
-    } else if (
-      d.companionDocumentNumber === d.documentNumber &&
-      d.companionDocumentType === d.documentType
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["companionDocumentNumber"],
-        message: "El acompañante no puede tener tu mismo documento",
-      });
-    }
+    const issue = documentIssue(d.documentType, d.documentNumber);
+    if (issue) ctx.addIssue({ code: "custom", path: ["documentNumber"], message: issue });
+    checkCompanions(d, d.companions, ctx);
   });
+
+/**
+ * Confirmación del asistente que ya está en la base precargada: sus datos vienen de la base;
+ * solo elige fecha, confirma contacto y registra acompañantes.
+ */
+export const confirmationSchema = z
+  .object({
+    inviteeId: z.string().uuid(),
+    eventDateId: z.string().uuid({ message: "Selecciona el día en que asistirás" }),
+    email: z.union([z.literal(""), z.string().trim().toLowerCase().email("Correo no válido")]).optional(),
+    phone: z.union([z.literal(""), z.string().trim().regex(/^\+?[0-9\s-]{7,20}$/, "Celular no válido")]).optional(),
+    companions: companionsList,
+  })
+  .superRefine((d, ctx) => checkCompanions(null, d.companions, ctx));
+
+export type ConfirmationInput = z.input<typeof confirmationSchema>;
 
 export type RegistrationInput = z.input<typeof registrationSchema>;
 

@@ -17,7 +17,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         <span className="mb-6 grid size-12 place-items-center rounded-2xl bg-indigo-600 text-white"><CalendarDays className="size-6" /></span>
         <p className="text-xs font-semibold uppercase tracking-widest text-indigo-600">Eventos Below · Administración</p>
         <h1 className="mt-2 text-3xl font-bold tracking-tight">Bienvenido de nuevo</h1>
-        <p className="mt-3 text-sm leading-relaxed text-slate-600">Ingresa con la cuenta de tu equipo para organizar eventos y gestionar las inscripciones.</p>
+        <p className="mt-3 text-sm leading-relaxed text-slate-600">Administradores, coordinadores, supervisores y promotores: ingresa con tu correo o DNI.</p>
         <LoginForm next={safeNext} />
       </div>
       <p className="mt-6 text-center text-sm text-slate-500">¿Vienes como asistente? <Link href="/" className="font-semibold text-indigo-700 underline underline-offset-4">Inscríbete sin crear una cuenta</Link></p>

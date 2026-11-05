@@ -41,8 +41,12 @@ export async function createTenant(_: FormState, fd: FormData): Promise<FormStat
   const d = parsed.data;
 
   try {
+    // Cada cliente nace con un proyecto "General" para poder crear eventos de inmediato
     await query(
-      `insert into tenants (name, slug, tax_id, contact_name, contact_email) values ($1, $2, $3, $4, $5)`,
+      `with t as (
+         insert into tenants (name, slug, tax_id, contact_name, contact_email) values ($1, $2, $3, $4, $5) returning id
+       )
+       insert into projects (tenant_id, name) select id, 'General' from t`,
       [d.name, d.slug, d.taxId || null, d.contactName || null, d.contactEmail || null],
     );
   } catch (err) {
@@ -53,20 +57,22 @@ export async function createTenant(_: FormState, fd: FormData): Promise<FormStat
 
   revalidatePath("/admin/clientes");
   revalidatePath("/admin/asignaciones");
-  return { ok: true, message: "Cliente creado. Ahora asígnale coordinadores y promotores." };
+  revalidatePath("/admin/proyectos");
+  return { ok: true, message: "Cliente creado con el proyecto «General». Crea más proyectos si lo necesitas y asígnale coordinadores." };
 }
 
 // -------------------------------------------------------------------------------------
 // Eventos
 // -------------------------------------------------------------------------------------
 const eventSchema = z.object({
-  tenantId: z.string().uuid({ message: "Selecciona un cliente" }),
+  projectId: z.string().uuid({ message: "Selecciona un proyecto" }),
   name: z.string().trim().min(3, "Ingresa el nombre del evento").max(140),
   slug: slugSchema,
   description: z.string().trim().max(2000).optional(),
   venue: z.string().trim().max(200).optional(),
   primaryColor: hexColorSchema,
   companionMode: z.enum(["NONE", "OPTIONAL", "REQUIRED"]),
+  maxCompanions: z.coerce.number().int().min(0).max(10, "Máximo 10 acompañantes"),
   isPublished: z.boolean(),
   registrationOpen: z.boolean(),
 });
@@ -95,19 +101,26 @@ export async function saveEvent(_: FormState, fd: FormData): Promise<FormState> 
   const eventId = str(fd, "eventId");
 
   const parsed = eventSchema.safeParse({
-    tenantId: str(fd, "tenantId"),
+    projectId: str(fd, "projectId"),
     name: str(fd, "name"),
     slug: str(fd, "slug"),
     description: str(fd, "description"),
     venue: str(fd, "venue"),
     primaryColor: str(fd, "primaryColor"),
     companionMode: str(fd, "companionMode"),
+    maxCompanions: str(fd, "maxCompanions") || "1",
     isPublished: fd.get("isPublished") === "on",
     registrationOpen: fd.get("registrationOpen") === "on",
   });
   if (!parsed.success) return { fieldErrors: flattenErrors(parsed.error) };
   const d = parsed.data;
-  if (!canAdminTenant(viewer, d.tenantId)) return { message: "No autorizado para este cliente." };
+  const project = await queryOne<{ tenant_id: string }>(
+    "select tenant_id from projects where id = $1 and is_active",
+    [d.projectId],
+  );
+  if (!project || !canAdminTenant(viewer, project.tenant_id)) return { fieldErrors: { projectId: "Proyecto no válido" } };
+  // Sin acompañantes ⇔ máximo 0; con acompañantes, al menos 1
+  const maxCompanions = d.companionMode === "NONE" ? 0 : Math.max(1, d.maxCompanions);
 
   const values = [
     d.name,
@@ -118,23 +131,28 @@ export async function saveEvent(_: FormState, fd: FormData): Promise<FormState> 
     d.companionMode,
     d.isPublished,
     d.registrationOpen,
+    maxCompanions,
+    d.projectId,
   ];
 
   let id = eventId;
   try {
     if (id) {
       const { event } = await requireEvent(id, "admin");
+      // El proyecto puede cambiar, pero dentro del mismo cliente
+      if (event.tenant_id !== project.tenant_id) return { fieldErrors: { projectId: "El proyecto debe ser del mismo cliente" } };
       await query(
         `update events set name = $1, slug = $2, description = $3, venue = $4, primary_color = $5,
-                companion_mode = $6, is_published = $7, registration_open = $8
-          where id = $9`,
+                companion_mode = $6, is_published = $7, registration_open = $8, max_companions = $9, project_id = $10
+          where id = $11`,
         [...values, event.id],
       );
     } else {
       const row = await queryOne<{ id: string }>(
-        `insert into events (name, slug, description, venue, primary_color, companion_mode, is_published, registration_open, tenant_id)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
-        [...values, d.tenantId],
+        `insert into events (name, slug, description, venue, primary_color, companion_mode, is_published, registration_open,
+                             max_companions, project_id, tenant_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id`,
+        [...values, project.tenant_id],
       );
       id = row!.id;
     }

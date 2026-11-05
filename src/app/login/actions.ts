@@ -20,10 +20,12 @@ const attempts = createRateLimiter(8, 15 * 60 * 1000);
 const DUMMY_HASH = "scrypt$AAAAAAAAAAAAAAAAAAAAAA$" + "A".repeat(86);
 
 export async function login(_: LoginState, fd: FormData): Promise<LoginState> {
-  const email = String(fd.get("email") ?? "").trim().toLowerCase();
+  // Usuario: correo o número de documento
+  const raw = String(fd.get("email") ?? "").trim().toLowerCase();
+  const email = raw.includes("@") ? raw : raw.replace(/[\s.-]/g, "");
   const password = String(fd.get("password") ?? "");
   if (!email || email.length > 254 || !password || password.length > 1024) {
-    return { error: "Correo o contraseña incorrectos." };
+    return { error: "Usuario o contraseña incorrectos." };
   }
   const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
   const key = `${email}|${ip}`;
@@ -32,17 +34,21 @@ export async function login(_: LoginState, fd: FormData): Promise<LoginState> {
   }
 
   const user = await queryOne<{ id: string; password_hash: string; must_change_password: boolean; is_platform_admin: boolean }>(
-    "select id, password_hash, must_change_password, is_platform_admin from users where email = $1 and is_active",
+    "select id, password_hash, must_change_password, is_platform_admin from users where (email = $1 or username = $1) and is_active limit 1",
     [email],
   );
   const ok = await verifyPassword(password, user?.password_hash ?? DUMMY_HASH);
 
+  // Administrador, coordinador con clientes, o supervisor/promotor activo
   const authorized = user && (user.is_platform_admin || !!(await queryOne(
-    "select 1 from tenant_members where user_id = $1 and role = 'CLIENT_ADMIN' limit 1",
+    `select 1 from tenant_members where user_id = $1
+     union all
+     select 1 from employees where user_id = $1 and is_active and profile in ('SUPERVISOR', 'PROMOTOR')
+     limit 1`,
     [user.id],
   )));
   if (!user || !ok || !authorized) {
-    return { error: "Correo o contraseña incorrectos." };
+    return { error: "Usuario o contraseña incorrectos." };
   }
 
   attempts.reset(key);

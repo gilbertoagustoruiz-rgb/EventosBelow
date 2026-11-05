@@ -19,10 +19,11 @@ export async function resendTicket(_: RecoveryState, fd: FormData): Promise<Reco
   const records = await query<{
     token: string; full_name: string; name: string; venue: string | null;
     primary_color: string; event_day: string; starts_at: string; ends_at: string;
-    companion_full_name: string | null;
+    companion_names: string[];
   }>(
     `select r.token, r.full_name, e.name, e.venue, e.primary_color,
-            d.event_day::text, d.starts_at::text, d.ends_at::text, r.companion_full_name
+            d.event_day::text, d.starts_at::text, d.ends_at::text,
+            coalesce((select array_agg(c.full_name order by c.position) from companions c where c.registration_id = r.id), '{}') as companion_names
        from registrations r
        join events e on e.id = r.event_id
        join event_dates d on d.id = r.event_date_id
@@ -35,7 +36,7 @@ export async function resendTicket(_: RecoveryState, fd: FormData): Promise<Reco
       to: email, fullName: r.full_name, eventName: r.name, eventSlug: slug,
       venue: r.venue, brandColor: r.primary_color, day: r.event_day,
       startsAt: r.starts_at, endsAt: r.ends_at, token: r.token,
-      companionName: r.companion_full_name,
+      companionNames: r.companion_names,
     });
   }
   return { message: GENERIC };

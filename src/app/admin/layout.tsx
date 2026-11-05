@@ -2,13 +2,16 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { KeyRound, LogOut } from "lucide-react";
 import { requireViewer } from "@/lib/auth";
+import { PROFILES } from "@/lib/profiles";
 import { logout } from "@/app/login/actions";
 import { AdminNavigation } from "@/components/admin/navigation";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const viewer = await requireViewer();
-  // Solo administradores generales y coordinadores con clientes asignados
-  if (!viewer.isPlatformAdmin && viewer.memberships.length === 0) redirect("/login");
+  // Promotores trabajan solo en Acreditación; supervisores ven sus eventos y el dashboard
+  if (!viewer.isPlatformAdmin && viewer.profile === "PROMOTOR") redirect("/checkin");
+  if (!viewer.isPlatformAdmin && viewer.profile !== "SUPERVISOR" && viewer.memberships.length === 0) redirect("/login");
+  const role = viewer.isPlatformAdmin ? "Administrador" : viewer.profile ? PROFILES[viewer.profile].label : "Coordinador";
 
   return (
     <div className="min-h-dvh">
@@ -19,8 +22,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             Eventos <span className="text-indigo-600">Below</span>
           </Link>
           <div className="ml-auto flex items-center gap-3 text-sm">
-            <span className="hidden text-slate-500 sm:inline">{viewer.email}</span>
-            <span className="hidden rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 sm:inline">{viewer.isPlatformAdmin ? "Administrador general" : "Coordinador"}</span>
+            <span className="hidden text-slate-500 sm:inline">{viewer.fullName ?? viewer.email ?? viewer.username}</span>
+            <span className="hidden rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700 sm:inline">{role}</span>
             <Link href="/cuenta" className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-slate-600 hover:bg-slate-100" aria-label="Mi cuenta y contraseña">
               <KeyRound className="size-4" />
               <span className="hidden sm:inline">Mi cuenta</span>

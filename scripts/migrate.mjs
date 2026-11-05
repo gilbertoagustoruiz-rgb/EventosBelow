@@ -48,8 +48,8 @@ try {
     const { rows } = await client.query("select 1 from users where is_platform_admin limit 1");
     if (rows.length === 0) {
       const { rows: [user] } = await client.query(
-        `insert into users (email, password_hash, is_platform_admin, must_change_password)
-         values ($1, $2, true, true)
+        `insert into users (email, username, password_hash, is_platform_admin, must_change_password)
+         values ($1, $1, $2, true, true)
          on conflict (email) do update set is_platform_admin = true
          returning id`,
         [email, await hashPassword(password)],

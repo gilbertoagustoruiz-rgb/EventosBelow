@@ -12,8 +12,8 @@ export function LoginForm({ next }: { next: string }) {
     <form action={action} className="mt-6 space-y-4">
       <input type="hidden" name="next" value={next} />
       <div>
-        <label className="label" htmlFor="email">Correo</label>
-        <input id="email" name="email" type="email" autoComplete="username" placeholder="tu@empresa.com" required className="input" />
+        <label className="label" htmlFor="email">Correo o DNI</label>
+        <input id="email" name="email" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder="tu@empresa.com o 12345678" required className="input" />
       </div>
       <div>
         <label className="label" htmlFor="password">Contraseña</label>

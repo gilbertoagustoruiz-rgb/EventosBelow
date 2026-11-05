@@ -29,7 +29,7 @@ export default async function PublicEventPage({ params }: Params) {
       <main className="mx-auto -mt-12 max-w-3xl px-4 pb-16 sm:px-8">
         <div className="card p-5 sm:p-8">
           {event.registration_open ? (
-            <RegistrationForm slug={event.slug} companionMode={event.companion_mode} dates={dates} />
+            <RegistrationForm slug={event.slug} companionMode={event.companion_mode} maxCompanions={event.max_companions} dates={dates} />
           ) : (
             <p className="py-6 text-center text-slate-600">Las inscripciones para este evento están cerradas.</p>
           )}

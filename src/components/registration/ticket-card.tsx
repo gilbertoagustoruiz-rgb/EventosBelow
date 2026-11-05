@@ -14,7 +14,7 @@ export interface TicketData {
   documentType: DocumentType;
   documentNumber: string;
   company: string | null;
-  companionFullName: string | null;
+  companions: { fullName: string; checkedIn: boolean }[];
   eventName: string;
   venue: string | null;
   logoUrl: string | null;
@@ -95,12 +95,13 @@ export function TicketCard({ ticket }: { ticket: TicketData }) {
               {ticket.company && ` · ${ticket.company}`}
             </span>
           </Row>
-          {ticket.companionFullName && (
-            <Row icon={<UserPlus />}>
-              <span className="text-slate-500">Acompañante: </span>
-              <span className="font-medium">{ticket.companionFullName}</span>
+          {ticket.companions.map((c, i) => (
+            <Row key={i} icon={<UserPlus />}>
+              <span className="text-slate-500">Acompañante{ticket.companions.length > 1 ? ` ${i + 1}` : ""}: </span>
+              <span className="font-medium">{c.fullName}</span>
+              {c.checkedIn && <CheckCircle2 className="ml-1.5 inline size-3.5 text-emerald-600" aria-label="Ingresó" />}
             </Row>
-          )}
+          ))}
         </div>
       </article>
 

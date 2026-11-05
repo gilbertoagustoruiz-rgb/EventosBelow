@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Building2, CalendarDays, UserCog, Users } from "lucide-react";
+import { Building2, CalendarDays, FolderKanban, UserCog } from "lucide-react";
 import { requireAdmin } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { TenantForm } from "@/components/admin/tenant-forms";
@@ -10,10 +10,10 @@ export const metadata = { title: "Clientes" };
 
 export default async function TenantsPage() {
   await requireAdmin();
-  const tenants = await query<Tenant & { coordinators: number; promoters: number; events: number }>(
+  const tenants = await query<Tenant & { coordinators: number; projects: number; events: number }>(
     `select t.*,
             count(*) filter (where e.profile = 'COORDINADOR' and e.is_active)::int as coordinators,
-            count(*) filter (where e.profile = 'PROMOTOR' and e.is_active)::int as promoters,
+            (select count(*) from projects p where p.tenant_id = t.id and p.is_active)::int as projects,
             (select count(*) from events ev where ev.tenant_id = t.id)::int as events
        from tenants t
        left join employee_clients ec on ec.tenant_id = t.id
@@ -26,7 +26,7 @@ export default async function TenantsPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Clientes</h1>
-        <p className="mt-2 text-slate-600">Empresas para las que Below organiza eventos. Su personal se asigna en Asignaciones.</p>
+        <p className="mt-2 text-slate-600">Empresas para las que Below organiza eventos. Cada cliente tiene proyectos y cada proyecto, sus eventos. Los coordinadores se asignan por cliente.</p>
       </div>
 
       <section className="card p-6">
@@ -50,12 +50,13 @@ export default async function TenantsPage() {
             </div>
             <dl className="mt-4 grid grid-cols-3 gap-2 text-center text-sm">
               <Stat icon={<UserCog className="size-4" />} label="Coordinadores" value={t.coordinators} warn={t.coordinators === 0} />
-              <Stat icon={<Users className="size-4" />} label="Promotores" value={t.promoters} warn={t.promoters === 0} />
+              <Stat icon={<FolderKanban className="size-4" />} label="Proyectos" value={t.projects} warn={t.projects === 0} />
               <Stat icon={<CalendarDays className="size-4" />} label="Eventos" value={t.events} />
             </dl>
-            <Link href={`/admin/asignaciones?cliente=${t.slug}`} className="btn-ghost mt-4 w-full py-2">
-              Gestionar asignaciones
-            </Link>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <Link href={`/admin/proyectos?cliente=${t.slug}`} className="btn-ghost py-2">Proyectos</Link>
+              <Link href={`/admin/asignaciones?cliente=${t.slug}`} className="btn-ghost py-2">Coordinadores</Link>
+            </div>
           </article>
         ))}
         {tenants.length === 0 && <p className="card p-8 text-center text-slate-500 sm:col-span-2">Aún no hay clientes.</p>}

@@ -2,31 +2,37 @@
 
 import { z } from "zod";
 import { checkinAccess } from "@/lib/auth";
-import { query, queryOne, transaction } from "@/lib/db";
+import { query, queryOne } from "@/lib/db";
 import type { Registration } from "@/lib/types";
 
 /** Estado visual de una validación */
 export type LookupState =
-  | "VALID" //            verde: puede ingresar (titular y/o acompañante pendiente)
-  | "ALREADY_IN" //       rojo: todos ya ingresaron
+  | "VALID" //            verde: hay personas pendientes de ingresar
+  | "ALREADY_IN" //       rojo: todos ya ingresaron (se muestra a qué hora)
   | "WRONG_DATE" //       rojo: registrado para otra fecha
   | "CANCELLED" //        rojo
   | "NOT_FOUND" //        rojo
-  | "NO_ACCESS"; //       rojo: el enlace de acreditación fue revocado
+  | "NO_ACCESS"; //       rojo: el enlace de acreditación ya no es válido
+
+export interface CheckinCompanion {
+  id: string;
+  fullName: string;
+  documentType: string;
+  documentNumber: string;
+  checkedInAt: string | null;
+}
 
 export interface CheckinPerson {
   id: string;
   fullName: string;
   documentType: string;
   documentNumber: string;
+  employeeCode: string | null;
   email: string;
   company: string | null;
   jobTitle: string | null;
-  hasCompanion: boolean;
-  companionFullName: string | null;
-  companionDocumentNumber: string | null;
   holderCheckedInAt: string | null;
-  companionCheckedInAt: string | null;
+  companions: CheckinCompanion[];
   eventDateId: string;
   status: Registration["status"];
 }
@@ -36,12 +42,19 @@ export interface LookupResult {
   person: CheckinPerson | null;
   /** Fecha real del registro cuando state = WRONG_DATE */
   registeredDay?: string;
-  /** Se acaba de marcar un ingreso en esta operación */
-  justCheckedIn?: boolean;
+  /** Personas que ingresaron en esta operación */
+  justCheckedIn?: number;
 }
 
-const COLUMNS =
-  "id, event_date_id, full_name, document_type, document_number, email, company, job_title, has_companion, companion_full_name, companion_document_number, holder_checked_in_at, companion_checked_in_at, status";
+/** Inscripción + acompañantes (json) */
+const SELECT = `
+  select r.id, r.event_date_id, r.full_name, r.document_type, r.document_number, r.employee_code, r.email,
+         r.company, r.job_title, r.holder_checked_in_at, r.status,
+         coalesce((select json_agg(json_build_object(
+                     'id', c.id, 'fullName', c.full_name, 'documentType', c.document_type,
+                     'documentNumber', c.document_number, 'checkedInAt', c.checked_in_at) order by c.position)
+                     from companions c where c.registration_id = r.id), '[]') as companions
+    from registrations r`;
 
 type Row = Pick<
   Registration,
@@ -50,16 +63,13 @@ type Row = Pick<
   | "full_name"
   | "document_type"
   | "document_number"
+  | "employee_code"
   | "email"
   | "company"
   | "job_title"
-  | "has_companion"
-  | "companion_full_name"
-  | "companion_document_number"
   | "holder_checked_in_at"
-  | "companion_checked_in_at"
   | "status"
->;
+> & { companions: CheckinCompanion[] };
 
 function toPerson(r: Row): CheckinPerson {
   return {
@@ -67,14 +77,15 @@ function toPerson(r: Row): CheckinPerson {
     fullName: r.full_name,
     documentType: r.document_type,
     documentNumber: r.document_number,
+    employeeCode: r.employee_code,
     email: r.email,
     company: r.company,
     jobTitle: r.job_title,
-    hasCompanion: r.has_companion,
-    companionFullName: r.companion_full_name,
-    companionDocumentNumber: r.companion_document_number,
     holderCheckedInAt: r.holder_checked_in_at,
-    companionCheckedInAt: r.companion_checked_in_at,
+    companions: r.companions.map((c) => ({
+      ...c,
+      checkedInAt: c.checkedInAt ? new Date(c.checkedInAt).toISOString() : null,
+    })),
     eventDateId: r.event_date_id,
     status: r.status,
   };
@@ -83,12 +94,19 @@ function toPerson(r: Row): CheckinPerson {
 function evaluate(r: Row, eventDateId: string): LookupState {
   if (r.status === "CANCELADO") return "CANCELLED";
   if (r.event_date_id !== eventDateId) return "WRONG_DATE";
-  const holderPending = !r.holder_checked_in_at;
-  const companionPending = r.has_companion && !r.companion_checked_in_at;
-  return holderPending || companionPending ? "VALID" : "ALREADY_IN";
+  const pending = !r.holder_checked_in_at || r.companions.some((c) => !c.checkedInAt);
+  return pending ? "VALID" : "ALREADY_IN";
 }
 
+const LOG_RESULT: Partial<Record<LookupState, string>> = {
+  ALREADY_IN: "YA_INGRESO",
+  WRONG_DATE: "FECHA_INCORRECTA",
+  CANCELLED: "CANCELADO",
+  NOT_FOUND: "NO_ENCONTRADO",
+};
+
 const KEY = z.string().regex(/^[a-f0-9]{32}$/).optional();
+const METHOD = z.enum(["QR", "DOCUMENTO", "BUSQUEDA"]).default("BUSQUEDA");
 
 const lookupSchema = z.object({
   eventId: z.string().uuid(),
@@ -96,24 +114,52 @@ const lookupSchema = z.object({
   eventDateId: z.string().uuid(),
   token: z.string().optional(),
   registrationId: z.string().uuid().optional(),
+  /** DNI / documento (titular o acompañante) o código de vendedor, búsqueda exacta */
+  code: z.string().trim().max(40).optional(),
+  method: METHOD,
 });
 
-/** Valida un QR escaneado o un registro elegido en la búsqueda. No modifica nada. */
+/**
+ * Valida un QR, un documento / código de vendedor exacto o un registro elegido en la búsqueda.
+ * No marca ingresos. Las lecturas por QR o documento quedan en la bitácora (incluidas las alertas).
+ */
 export async function lookupRegistration(input: z.input<typeof lookupSchema>): Promise<LookupResult> {
-  const { eventId, eventDateId, token, registrationId, key } = lookupSchema.parse(input);
-  if (!(await checkinAccess(eventId, key))) return { state: "NO_ACCESS", person: null };
+  const { eventId, eventDateId, token, registrationId, code, method, key } = lookupSchema.parse(input);
+  const access = await checkinAccess(eventId, key);
+  if (!access) return { state: "NO_ACCESS", person: null };
 
-  let row: Row | null;
+  let row: Row | null = null;
   if (registrationId) {
-    row = await queryOne<Row>(`select ${COLUMNS} from registrations where event_id = $1 and id = $2`, [eventId, registrationId]);
+    row = await queryOne<Row>(`${SELECT} where r.event_id = $1 and r.id = $2`, [eventId, registrationId]);
   } else if (token && /^[a-f0-9]{32}$/i.test(token)) {
-    row = await queryOne<Row>(`select ${COLUMNS} from registrations where event_id = $1 and token = $2`, [eventId, token.toLowerCase()]);
-  } else {
-    return { state: "NOT_FOUND", person: null };
+    row = await queryOne<Row>(`${SELECT} where r.event_id = $1 and r.token = $2`, [eventId, token.toLowerCase()]);
+  } else if (code) {
+    const doc = code.toUpperCase().replace(/[\s.-]/g, "");
+    // Prioriza inscripciones activas de la fecha seleccionada
+    row = await queryOne<Row>(
+      `${SELECT}
+        where r.event_id = $1
+          and (r.document_number = $2 or upper(r.employee_code) = upper($3)
+               or regexp_replace(upper(r.employee_code), '[[:space:].-]', '', 'g') = $2
+               or exists (select 1 from companions c where c.registration_id = r.id and c.document_number = $2))
+        order by (r.status = 'CANCELADO'), (r.event_date_id <> $4), r.created_at desc
+        limit 1`,
+      [eventId, doc, code.trim(), eventDateId],
+    );
   }
-  if (!row) return { state: "NOT_FOUND", person: null };
 
-  const state = evaluate(row, eventDateId);
+  const state: LookupState = row ? evaluate(row, eventDateId) : "NOT_FOUND";
+
+  // Bitácora de lecturas en el ingreso (no de búsquedas por nombre)
+  if (method !== "BUSQUEDA" && LOG_RESULT[state]) {
+    await query(
+      `insert into checkin_log (event_id, event_date_id, registration_id, employee_id, result, method, detail)
+       values ($1, $2, $3, $4, $5, $6, $7)`,
+      [eventId, eventDateId, row?.id ?? null, access.employeeId, LOG_RESULT[state], method, row ? null : maskCode(code ?? "QR")],
+    );
+  }
+
+  if (!row) return { state: "NOT_FOUND", person: null };
   let registeredDay: string | undefined;
   if (state === "WRONG_DATE") {
     const d = await queryOne<{ event_day: string }>("select event_day from event_dates where id = $1", [row.event_date_id]);
@@ -122,10 +168,18 @@ export async function lookupRegistration(input: z.input<typeof lookupSchema>): P
   return { state, person: toPerson(row), registeredDay };
 }
 
+/** "12345678" → "•••••678" (la bitácora no guarda documentos de personas no inscritas) */
+function maskCode(v: string) {
+  const s = v.trim();
+  return s.length <= 3 ? s : "•".repeat(Math.min(s.length - 3, 6)) + s.slice(-3);
+}
+
 const searchSchema = z.object({ eventId: z.string().uuid(), key: KEY, q: z.string().trim().min(2).max(80) });
 
-/** Búsqueda predictiva por DNI, nombre o correo (titular o acompañante) en todo el evento. */
-/** Devuelve null si el enlace de acreditación ya no tiene acceso (revocado). */
+/**
+ * Búsqueda predictiva por nombre, correo, documento o código de vendedor (titular o acompañantes).
+ * Devuelve null si el enlace de acreditación ya no tiene acceso.
+ */
 export async function searchRegistrations(input: z.input<typeof searchSchema>): Promise<CheckinPerson[] | null> {
   const parsed = searchSchema.safeParse(input);
   if (!parsed.success) return [];
@@ -138,13 +192,14 @@ export async function searchRegistrations(input: z.input<typeof searchSchema>): 
   const doc = q.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
   const rows = await query<Row>(
-    `select ${COLUMNS} from registrations
-      where event_id = $1
-        and (full_name ilike '%' || $2 || '%'
-          or email ilike '%' || $2 || '%'
-          or companion_full_name ilike '%' || $2 || '%'
-          or ($3 <> '' and (document_number like $3 || '%' or companion_document_number like $3 || '%')))
-      order by full_name
+    `${SELECT}
+      where r.event_id = $1
+        and (r.full_name ilike '%' || $2 || '%'
+          or r.email ilike '%' || $2 || '%'
+          or ($3 <> '' and (r.document_number like $3 || '%' or upper(r.employee_code) like $3 || '%'))
+          or exists (select 1 from companions c where c.registration_id = r.id
+                      and (c.full_name ilike '%' || $2 || '%' or ($3 <> '' and c.document_number like $3 || '%'))))
+      order by r.full_name
       limit 15`,
     [eventId, term, doc],
   );
@@ -156,50 +211,31 @@ const checkInSchema = z.object({
   key: KEY,
   eventDateId: z.string().uuid(),
   registrationId: z.string().uuid(),
-  target: z.enum(["HOLDER", "COMPANION", "BOTH"]),
+  holder: z.boolean(),
+  companionIds: z.array(z.string().uuid()).max(10).default([]),
+  method: METHOD,
 });
 
-/** Marca el ingreso. La función SQL bloquea la fila y evita doble ingreso aunque dos anfitriones escaneen a la vez. */
+/**
+ * Marca el ingreso del titular y/o de los acompañantes elegidos. La función SQL bloquea la fila,
+ * evita el doble ingreso aunque dos promotores lean el mismo QR y registra quién acreditó.
+ */
 export async function performCheckIn(input: z.input<typeof checkInSchema>): Promise<LookupResult> {
-  const { eventId, eventDateId, registrationId, target, key } = checkInSchema.parse(input);
+  const { eventId, eventDateId, registrationId, holder, companionIds, method, key } = checkInSchema.parse(input);
   const access = await checkinAccess(eventId, key);
   if (!access) return { state: "NO_ACCESS", person: null };
-  const { userId } = access;
 
   // El registro debe pertenecer al evento autorizado
   const owns = await queryOne("select 1 from registrations where id = $1 and event_id = $2", [registrationId, eventId]);
   if (!owns) return { state: "NOT_FOUND", person: null };
 
-  // Acreditación y auditoría en una sola transacción: nunca confirmar sin registrar al promotor.
-  const res = await transaction(async client => {
-    if (key) {
-      // Bloquea la asignación: si el administrador desactiva o desasigna al promotor a la vez, no se acredita
-      const access = await client.query<{ id: string }>(
-        `select ep.id from event_promoters ep
-           join events ev on ev.id = ep.event_id
-           join employees em on em.id = ep.employee_id and em.is_active
-           join employee_clients ec on ec.employee_id = em.id and ec.tenant_id = ev.tenant_id
-          where ep.event_id = $1 and ep.access_key = $2 and ep.is_active
-          for update of ep, em, ec`,
-        [eventId, key],
-      );
-      if (access.rows.length) {
-        const result=await client.query<{r:{result:string}}>("select check_in($1,$2,$3,$4) as r",[registrationId,eventDateId,target,userId]);
-        if(result.rows[0]?.r.result==="OK")await client.query("insert into promoter_checkins(promoter_id,registration_id,target) values($1,$2,$3)",[access.rows[0].id,registrationId,target]);
-        return result.rows[0]??null;
-      }
-      // Conserva compatibilidad con el enlace general del evento.
-      const legacy=await client.query("select 1 from events where id=$1 and checkin_key=$2",[eventId,key]);
-      if (!legacy.rows.length) return { revoked: true as const };
-    }
-    const result=await client.query<{r:{result:string}}>("select check_in($1,$2,$3,$4) as r",[registrationId,eventDateId,target,userId]);
-    return result.rows[0]??null;
-  });
-  // Revocado entre la validación y el ingreso: no se marcó nada
-  if (res && "revoked" in res) return { state: "NO_ACCESS", person: null };
+  const res = await queryOne<{ r: { result: string; persons?: number } }>(
+    "select check_in($1, $2, $3, $4::uuid[], $5, $6, $7) as r",
+    [registrationId, eventDateId, holder, companionIds, access.userId, access.employeeId, method],
+  );
 
   const fresh = await lookupRegistration({ eventId, eventDateId, registrationId, key });
-  return { ...fresh, justCheckedIn: res?.r.result === "OK" };
+  return { ...fresh, justCheckedIn: res?.r.result === "OK" ? (res.r.persons ?? 1) : 0 };
 }
 
 export interface DateStats {

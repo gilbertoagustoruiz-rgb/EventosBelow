@@ -11,7 +11,7 @@ export const viewport: Viewport = { themeColor: "#020617", maximumScale: 1 };
 
 export default async function CheckinPage({ params }: { params: Promise<{ eventId: string }> }) {
   const { eventId } = await params;
-  const { event } = await requireEvent(eventId, "host");
+  const { event, viewer } = await requireEvent(eventId, "host");
   const dates = await query<EventDate>(
     "select * from event_dates where event_id = $1 order by event_day, starts_at",
     [event.id],
@@ -38,6 +38,7 @@ export default async function CheckinPage({ params }: { params: Promise<{ eventI
         timezone={event.timezone}
         dates={dates}
         initialDateId={initial.id}
+        operator={viewer.fullName ?? viewer.email ?? viewer.username}
       />
     </div>
   );

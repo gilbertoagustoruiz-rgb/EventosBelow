@@ -10,95 +10,104 @@ Plataforma web **multi-tenant** para registrar y acreditar asistentes a eventos 
 
 ## Perfiles y módulos
 
+Jerarquía: **Cliente → Proyecto → Eventos**. Cada evento tiene fechas con aforo, una **base de invitados precargada** y su **personal de apoyo** (supervisores y promotores).
+
 | Perfil | Acceso | Qué hace |
 |---|---|---|
-| **Administrador general** (Below Trade) | Correo y contraseña | Crea **clientes**, **empleados** y **asignaciones**; ve **perfiles**; gestiona todos los eventos |
-| **Coordinador** | Correo y contraseña | Gestiona los eventos de los clientes que tiene asignados y **selecciona promotores** (de los asignados a ese cliente) para cada evento |
-| **Promotor** | Enlace personal por evento | Acredita asistentes; cada ingreso queda a su nombre |
-| Anfitrión con enlace general | Enlace del evento | Acredita asistentes (queda como “Enlace general”) |
-| Asistente | Público | Se inscribe, recibe y recupera su ticket QR |
+| **Administrador general** (Below Trade) | Correo o DNI y contraseña | Crea **clientes**, **proyectos**, **eventos** y **usuarios** de todos los perfiles; asigna coordinadores a cada cliente; ve todo |
+| **Coordinador** | Correo o DNI y contraseña | Crea, ve y edita los eventos de sus clientes; carga la base de invitados; agrega **supervisores y promotores** a cada evento; ve el **dashboard** |
+| **Supervisor del evento** | Correo o DNI y contraseña | Ve el dashboard y toda la gestión de los promotores de sus eventos; **agrega o quita promotores**; acredita |
+| **Promotor del evento** | Correo o DNI y contraseña | Busca por **DNI o código de vendedor** o escanea el **QR** y confirma el ingreso; recibe la alerta si la persona ya ingresó y a qué hora |
+| Apoyo con enlace general | Enlace del evento | Acredita sin usuario (queda como “Enlace general”) |
+| Asistente (invitado) | Público | Escribe su **DNI o código de vendedor**, se autocompletan sus datos de la base, elige el **día** y sus acompañantes |
 
 | Módulo | Ruta | Perfil |
 |---|---|---|
-| Eventos | `/admin` | Administrador (todos) · Coordinador (sus clientes) |
+| Eventos | `/admin` | Administrador (todos) · Coordinador (sus clientes) · Supervisor (sus eventos) |
 | Clientes | `/admin/clientes` | Administrador |
-| Empleados | `/admin/empleados` | Administrador |
-| Asignaciones | `/admin/asignaciones` | Administrador |
+| Proyectos | `/admin/proyectos` | Administrador |
+| Empleados (usuarios) | `/admin/empleados` | Administrador |
+| Coordinadores por cliente | `/admin/asignaciones` | Administrador |
 | Perfiles | `/admin/perfiles` | Administrador |
-| Importar inscripciones | `/admin/eventos/[id]/importar` | Administrador · Coordinador |
-| Acreditación con cuenta | `/checkin/[eventId]` | Administrador · Coordinador |
-| Acreditación de promotor | `/promotor/[enlace]` | Promotor (sin login) |
-| Acreditación general | `/acreditar/[enlace]` | Equipo de apoyo (sin login) |
-| Portal de registro | `/evento/[slug]` | Público |
+| Evento: fechas, invitados, personal, inscripciones | `/admin/eventos/[id]` | Administrador · Coordinador |
+| Base de invitados / carga Excel | `/admin/eventos/[id]/invitados` · `/importar` | Administrador · Coordinador |
+| Dashboard del evento | `/admin/eventos/[id]/dashboard` | Administrador · Coordinador · Supervisor |
+| Acreditación | `/checkin/[eventId]` | Todos los perfiles del evento |
+| Acreditación general | `/acreditar/[enlace]` | Apoyo eventual (sin login) |
+| Portal de confirmación | `/evento/[slug]` | Invitados |
 | Ticket con QR | `/evento/[slug]/ticket/[token]` | Asistente |
 
 **Reglas de acceso**
-- Solo el administrador crea empleados. Al crear un administrador o coordinador se genera su usuario con una **contraseña temporal** (se muestra una vez y debe cambiarse al primer ingreso).
-- Un coordinador accede únicamente a los clientes que el administrador le asignó. Si se le desasigna o se le **desactiva**, pierde el acceso al instante, incluso con la sesión abierta.
-- En cada evento, el coordinador solo puede elegir promotores **activos y asignados al cliente** del evento. Si el administrador desactiva al promotor o lo quita del cliente, sus enlaces dejan de funcionar al instante (se conserva el registro de lo que ya acreditó).
+- Solo el administrador crea usuarios. Cada empleado recibe una **contraseña temporal** (se muestra una vez y se cambia al primer ingreso). Ingresa con su **correo o su DNI**. Para empleados antiguos sin acceso hay un botón **Crear acceso**.
+- Un coordinador accede únicamente a los clientes que el administrador le asignó. Supervisores y promotores solo ven los eventos donde fueron agregados. Desactivar a un empleado le quita el acceso y lo retira del personal de sus eventos al instante.
+- El coordinador agrega supervisores y promotores desde el directorio; el supervisor solo agrega o quita promotores. La bitácora de lo acreditado se conserva siempre.
 
 ### 1. Administración
-- **Clientes, Empleados, Asignaciones y Perfiles**: solo el administrador general (ver arriba). Desde Empleados también se edita a cada persona, se la activa/desactiva y se genera una nueva contraseña temporal si la olvida.
-- **Eventos**: nombre, descripción, lugar, enlace (`slug`), **logo** y **color primario** con vista previa en vivo; modo de acompañante *Sin / Opcional / Obligatorio*; publicación e inscripciones abiertas/cerradas.
-- **Fechas y aforo**: varias fechas por evento con horario, etiqueta y aforo; barra de ocupación; el aforo no puede bajar por debajo de los cupos ya ocupados.
-- **Registros**: búsqueda, filtro por fecha, paginación, cancelación (libera cupos).
-- **Exportación** a **Excel** (hoja de registros + hoja resumen por fecha) o **CSV** (UTF-8 con BOM, protegido contra inyección de fórmulas).
+- **Clientes y proyectos**: cada cliente nace con el proyecto «General»; se pueden crear más y archivarlos.
+- **Eventos**: proyecto, nombre, descripción, lugar, enlace (`slug`), **logo** y **color primario** con vista previa; acompañantes *Sin / Opcional / Obligatorio* con **máximo configurable (hasta 10)**, cada uno con nombre y documento; publicación e inscripciones abiertas/cerradas.
+- **Fechas y aforo**: varias fechas por evento con horario, etiqueta y aforo. Cada acompañante ocupa un cupo.
+- **Base de invitados**: carga desde Excel (.xlsx, hasta 5 000 filas) con vista previa fila por fila; reconoce variantes de encabezados (`N° Documento`, `Código vendedor`, `Nombres y Apellidos`…). Si el documento ya existe, actualiza sus datos. También se agregan o quitan invitados uno a uno, y se ve quién ya confirmó su día.
+- **Inscripciones**: búsqueda por nombre, correo, documento o código; acompañantes con su documento y cuántos ingresaron; cancelación (libera todos los cupos del grupo).
+- **Exportación** a **Excel** (registros, resumen por fecha y **bitácora** de acreditación) o **CSV**.
 
-- **Importación desde Excel** (.xlsx, hasta 2 000 filas): reconoce encabezados con variantes (`N° Documento`, `Nro. DNI`, `Nombres y Apellidos`, `Teléfono celular`…), muestra una vista previa fila por fila con el motivo de cada rechazo (correo inválido, DNI repetido, ya inscrito, acompañante no permitido) y guarda todo en una sola transacción. Funciona aunque el evento no esté publicado. Opcionalmente envía el ticket QR por correo a cada importado.
-- **Promotores del evento**: el coordinador selecciona promotores entre los asignados al cliente; cada uno recibe su propio enlace de acreditación, que se puede retirar o regenerar. Cada ingreso queda registrado con el promotor que lo hizo, y la lista de inscripciones y la exportación muestran **“Acreditado por”** (promotor, coordinador o enlace general).
+### 2. Dashboard del evento
+- Personas que ingresaron (titulares + acompañantes) frente a las esperadas, base de invitados y confirmados.
+- **Ingresos por hora** con la **hora pico** resaltada (hora local del evento).
+- Cómo llegaron: **solos**, **con 1 acompañante** o **con más de uno**.
+- **Gestión por supervisor y promotor**: ingresos, personas, alertas (reingresos, otra fecha, cancelados), no encontrados y última actividad; actividad reciente con método (QR, DNI/código, nombre).
+- Filtro por fecha y actualización automática cada 30 s.
 
-### 2. Registro público
-- Tarjetas de fecha con **cupos restantes actualizados cada 15 s** y al volver a la pestaña. Las fechas agotadas, o con un solo cupo cuando hay acompañante, se deshabilitan.
-- Datos del titular (nombre, correo, teléfono, tipo y número de documento con validación por tipo: DNI 8 dígitos, CE, pasaporte, cédula; empresa y cargo opcionales) y del acompañante si aplica.
-- La reserva del cupo es **atómica en la base de datos**: aunque dos personas envíen a la vez por el último cupo, solo una entra.
-- Pantalla de éxito → **ticket con QR** descargable (PNG) e imprimible.
-- **Correo de confirmación** con el QR embebido (vía Resend). Sin `RESEND_API_KEY` el envío se simula en la consola del servidor.
+### 3. Confirmación del invitado
+- Solo pueden inscribirse las personas de la **base precargada**: escriben su **DNI o código de vendedor** y se muestran sus datos (documento y correo enmascarados). El correo de la base no se puede cambiar; si falta, se pide.
+- Elige el **día**, con cupos actualizados cada 15 s, y registra sus acompañantes si el evento lo permite.
+- Si ya estaba inscrito, **no se muestra el ticket**: se reenvía al correo registrado.
+- La reserva es **atómica en la base de datos**: aunque varios envíen a la vez por los últimos cupos, nunca se supera el aforo.
+- **Ticket con QR** descargable e imprimible y **correo de confirmación** (Resend; sin `RESEND_API_KEY` se simula en consola).
 
-### 3. Acreditación
-- Cada evento tiene un **enlace secreto de acreditación** (`/acreditar/<código>`, 128 bits aleatorios) que se copia desde el panel. Quien lo abre acredita **sin usuario ni contraseña**. **Regenerar** el enlace invalida el anterior al instante. Los administradores también pueden entrar por `/checkin` con su cuenta.
-- Interfaz oscura, pensada para celular/tablet, con **selector de fecha activa** (por defecto: hoy) y contador *ingresados / inscritos*.
-- **Escáner QR** con la cámara trasera, o **búsqueda predictiva** por DNI, nombre o correo (del titular o del acompañante).
-- Resultado inmediato a pantalla completa, con sonido y vibración:
-  - 🟢 **Registro válido** → botones *Ingresar ambos* / *Solo titular* / *Solo acompañante*.
-  - 🔴 **Ya ingresó** (muestra la hora), **Fecha incorrecta** (indica la fecha real), **Cancelado**, **No encontrado**.
-- El ingreso se marca con bloqueo de fila: **no hay doble ingreso** aunque dos anfitriones escaneen el mismo QR a la vez.
+### 4. Acreditación
+- Modo principal **DNI o código**: funciona con el documento del titular, de cualquier acompañante o con el código de vendedor. También **escáner QR** y búsqueda por nombre.
+- Muestra al titular y a cada acompañante para marcar **quién ingresa**; los que faltan pueden ingresar después.
+- Si se intenta registrar de nuevo: **“Esta persona ya ingresó al evento a las HH:MM”**, sin duplicar asistencia. También avisa *fecha incorrecta*, *cancelado* y *no encontrado*.
+- Cada intento queda en la **bitácora** con el empleado que lo hizo; con bloqueo de fila no hay doble ingreso aunque dos promotores escaneen a la vez.
 
 ---
 
 ## Modelo de datos
 
 ```
-users ──< tenant_members >── tenants ──< events ──< event_dates ──< registrations
-                                              └─────────────────────────┘ (FK compuesta: la fecha pertenece al evento)
+tenants ──< projects ──< events ──< event_dates ──< registrations ──< companions
+                            ├──< invitees (base precargada) ─────────┘ (invitee_id)
+                            ├──< event_staff >── employees ── users
+                            └──< checkin_log
+employees ──< employee_clients >── tenants   (coordinadores por cliente → vista tenant_members)
 ```
 
 | Tabla | Contenido clave |
 |---|---|
-| `users` | Correo, nombre, contraseña (scrypt), `is_platform_admin` (SuperAdmin), `must_change_password` |
-| `tenants` | Empresa cliente: nombre, slug, RUC, contacto |
-| `employees` | Directorio único del personal: perfil (`ADMINISTRADOR` / `COORDINADOR` / `PROMOTOR`), documento, correo, usuario de acceso, activo |
-| `employee_clients` | Asignación de empleados a clientes |
-| `tenant_members` | **Vista**: coordinadores activos asignados a cada cliente (de ahí salen los permisos) |
-| `events` | Branding (`logo_url`, `primary_color`), `slug` único, `companion_mode`, zona horaria, publicado/abierto |
-| `event_dates` | Día, hora inicio/fin, `capacity`, `registered_count` (cupos ocupados; `CHECK registered_count <= capacity`) |
-| `registrations` | Titular, acompañante, `token` único (lo que va en el QR), `seats` (1 o 2), estado `REGISTRADO / CHECKED_IN / CANCELADO`, hora de ingreso de titular y de acompañante, quién lo acreditó |
-| `event_promoters` | Promotores seleccionados en cada evento, con enlace (`access_key`) revocable |
-| `promoter_checkins` | Auditoría: qué promotor acreditó a quién, qué (titular/acompañante/ambos) y cuándo |
-| `assets` | Logos guardados en la base cuando no hay Spaces |
+| `users` | Correo y/o `username` (DNI), nombre, contraseña (scrypt), `is_platform_admin`, `must_change_password` |
+| `tenants` / `projects` | Cliente y sus proyectos |
+| `employees` | Directorio: perfil `ADMINISTRADOR / COORDINADOR / SUPERVISOR / PROMOTOR`, documento, correo, usuario, activo |
+| `employee_clients` · `tenant_members` | Coordinadores por cliente (la vista da los permisos) |
+| `events` | Proyecto, branding, `slug`, `companion_mode`, `max_companions`, zona horaria, publicado/abierto |
+| `event_dates` | Día, horario, `capacity`, `registered_count` (`CHECK registered_count <= capacity`) |
+| `invitees` | Base precargada por evento: documento, código de vendedor, nombre, correo, celular, empresa (únicos por evento) |
+| `registrations` | Titular (vinculado al invitado), `token` del QR, `companions_count`, `seats` = 1 + acompañantes, estado, hora de ingreso |
+| `companions` | Cada acompañante con nombre, documento y su propia hora de ingreso |
+| `event_staff` | Supervisores y promotores de cada evento |
+| `checkin_log` | Bitácora: resultado (`INGRESO / YA_INGRESO / FECHA_INCORRECTA / CANCELADO / NO_ENCONTRADO`), personas, método y empleado |
 
 Funciones SQL (la lógica crítica vive en la base de datos):
 
-- `register_attendee(..., p_admin)`: valida evento publicado, fecha vigente y reglas de acompañante; reserva cupos con un `UPDATE ... WHERE registered_count + seats <= capacity` e inserta el registro en la misma transacción. Errores: `SOLD_OUT`, `DUPLICATE`, `EVENT_CLOSED`, `DATE_PAST`, `COMPANION_REQUIRED`… Con `p_admin = true` (importación) no exige evento publicado/abierto ni fecha futura; aforo, duplicados y reglas de acompañante se mantienen.
-- `check_in(registration_id, event_date_id, target, user_id)`: `SELECT ... FOR UPDATE`; devuelve `OK / ALREADY / WRONG_DATE / CANCELLED / NOT_FOUND`.
-- `cancel_registration(id)`: cancela y devuelve los cupos.
-- Vista `event_date_stats` para los contadores del check-in.
+- `register_attendee(fecha, invitado, …, acompañantes jsonb, p_admin)`: en modo público exige invitado de la base y toma sus datos; valida evento, fecha, máximo y obligatoriedad de acompañantes y documentos repetidos; reserva cupos con `UPDATE … WHERE registered_count + seats <= capacity`. Errores: `NOT_INVITED`, `SOLD_OUT`, `DUPLICATE`, `TOO_MANY_COMPANIONS`, `COMPANION_REQUIRED`, `COMPANION_IS_HOLDER`, `COMPANION_DUPLICATE`, `EVENT_CLOSED`, `DATE_PAST`.
+- `check_in(registro, fecha, titular, acompañantes[], usuario, empleado, método)`: `SELECT … FOR UPDATE`; marca a cada persona y escribe la bitácora. Devuelve `OK / ALREADY / WRONG_DATE / CANCELLED / NOT_FOUND`.
+- `cancel_registration(id)`: cancela y devuelve todos los cupos del grupo.
 
 **Seguridad:**
 - Contraseñas con scrypt; sesión en cookie `httpOnly` firmada (7 días). Cambiar la contraseña cierra las demás sesiones.
-- Límite de 8 intentos de login por correo + IP cada 15 minutos; el login correcto reinicia su contador. Recuperación de ticket: un intento por evento + correo cada minuto. Ambos controles tienen memoria acotada y son **por proceso**: no sustituyen un límite compartido entre instancias ni la protección del proxy frente a abuso distribuido.
-- Cada consulta del panel y del check-in filtra por los clientes del usuario (`src/lib/auth.ts`); un usuario de otro cliente recibe 404.
+- Límites de intentos por proceso: login (8 por usuario + IP cada 15 min), búsqueda de invitado (20 por IP cada 10 min), confirmación (10 por IP cada 10 min), recuperación de ticket (1 por correo cada minuto). No sustituyen un límite compartido entre instancias ni la protección del proxy.
+- El portal público nunca muestra el documento completo, el correo ni un ticket existente.
+- Cada consulta del panel y del check-in filtra por los clientes o eventos del usuario (`src/lib/auth.ts`); fuera de su alcance recibe 404.
 - Todas las consultas son parametrizadas.
-- Un documento solo puede tener un registro activo por fecha (índice único parcial).
 
 ---
 
@@ -107,7 +116,7 @@ Funciones SQL (la lógica crítica vive en la base de datos):
 ```
 .do/app.yaml                  Especificación de DigitalOcean App Platform
 db/
-  migrations/0001_init.sql    Esquema y funciones
+  migrations/                 0001…0009 (esquema y funciones)
   seed-demo.sql               Cliente y evento de ejemplo (opcional)
 scripts/
   migrate.mjs                 Aplica migraciones pendientes (npm run db:migrate)
@@ -120,13 +129,16 @@ src/
     admin/
       actions.ts              Clientes, usuarios, eventos, logo, fechas, cancelación
       page.tsx                Lista de eventos
-      clientes/page.tsx       Clientes y equipo
-      eventos/nuevo/          Crear evento
-      eventos/[id]/           Fechas, registros, branding
+      clientes/ proyectos/    Clientes y proyectos
+      empleados/ asignaciones/ perfiles/
+      eventos/nuevo/          Crear evento (elige proyecto)
+      eventos/[id]/           Fechas, invitados, personal, inscripciones, branding
+      eventos/[id]/invitados/ Base de invitados (alta manual) · importar/ carga Excel
+      eventos/[id]/dashboard/ Indicadores, horas pico, acompañantes, gestión del personal
       eventos/[id]/exportar/  GET → .xlsx / .csv
     evento/[slug]/
       page.tsx                Portal público con branding
-      actions.ts              registerAttendee (Zod + función SQL + correo)
+      actions.ts              lookupInvitee + confirmRegistration (base precargada)
       ticket/[token]/         Ticket con QR
     checkin/
       page.tsx                Elegir evento
@@ -219,19 +231,12 @@ npm run dev
 ## Verificación realizada
 
 Automática (CI en cada PR y push a `main`, con PostgreSQL 16 real):
-- `npm test`: redirecciones seguras del login, límites de intentos, validación Zod y exportación Excel.
-- `tests/import-db.test.mjs`: esquema, importación con token QR, duplicados, aforo con conexiones concurrentes y modo administrador (evento sin publicar).
-- `tests/promoters-db.test.mjs`: directorio de empleados, permisos del coordinador según asignación y estado, promotores sin acceso al panel, enlaces y auditoría.
+- `npm test`: redirecciones seguras del login, límites de intentos, validación Zod (acompañantes) y exportación Excel.
+- `tests/flow-db.test.mjs`: esquema; proyecto del mismo cliente; solo invitados de la base y con sus datos; máximo, obligatoriedad y documentos de acompañantes; aforo en paralelo; modo administrador; acreditación parcial, reingreso, otra fecha y bitácora; cancelación; unicidad de documento y código; coordinadores por cliente y personal por evento.
 - `tests/logo-colors.test.mjs`: extracción de colores del logo.
 - `npm run typecheck` y `npm run build`.
 
-Manual en Chrome sobre una base con datos previos actualizada de la migración 0003 a la 0006:
-- Registro público con acompañante → ticket QR → duplicado rechazado.
-- Importación de un Excel con 6 filas en un evento sin publicar: 2 importadas con ticket por correo y 4 rechazadas con su motivo.
-- Promotor: alta → asignación → acreditación desde su enlace → “Acreditado por” en el panel y en el CSV.
-- Revocar con la consola abierta → “Enlace sin acceso” al seleccionar y al buscar.
-- Enlace general de acreditación sin login. Enlaces inexistentes responden 404.
-- Concurrencia: 80 registros simultáneos sobre un aforo de 50 → exactamente 50.
+Manual en Chrome (base nueva y copia con datos previos migrada a la 0009): administrador crea cliente, proyecto y usuarios de los tres perfiles; coordinador crea el evento, carga el Excel de invitados y agrega personal; invitado confirma con su código de vendedor y dos acompañantes; promotora ingresa con DNI y acredita en dos tandas, y el tercer intento muestra la hora del ingreso; supervisor ve el dashboard, no puede editar el evento y retira a la promotora.
 
 ## Siguientes pasos sugeridos
 

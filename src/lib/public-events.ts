@@ -12,6 +12,7 @@ export type PublicEvent = Pick<
   | "logo_url"
   | "primary_color"
   | "companion_mode"
+  | "max_companions"
   | "timezone"
   | "is_published"
   | "registration_open"
@@ -20,7 +21,7 @@ export type PublicEvent = Pick<
 /** Evento publicado por slug, solo con campos públicos. */
 export async function getPublicEvent(slug: string) {
   return queryOne<PublicEvent>(
-    `select id, name, slug, description, venue, logo_url, primary_color, companion_mode,
+    `select id, name, slug, description, venue, logo_url, primary_color, companion_mode, max_companions,
             timezone, is_published, registration_open
        from events where slug = $1 and is_published`,
     [slug],

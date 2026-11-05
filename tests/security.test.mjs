@@ -59,14 +59,20 @@ test("Zod valida y normaliza inscripciones y conserva errores por campo", async 
   const input = {
     eventDateId: "123e4567-e89b-42d3-a456-426614174000", fullName: "Ana Pérez",
     email: "ANA@example.com", phone: "999123456", documentType: "DNI",
-    documentNumber: "12.345.678", hasCompanion: false,
+    documentNumber: "12.345.678",
   };
   const valid = registrationSchema.parse(input);
   assert.equal(valid.email, "ana@example.com");
   assert.equal(valid.documentNumber, "12345678");
-  const invalid = registrationSchema.safeParse({ ...input, hasCompanion: true, companionFullName: "Luis Pérez", companionDocumentType: "DNI", companionDocumentNumber: "12345678" });
+  assert.deepEqual(valid.companions, []);
+  const invalid = registrationSchema.safeParse({ ...input, companions: [{ fullName: "Luis Pérez", documentType: "DNI", documentNumber: "12345678" }] });
   assert.equal(invalid.success, false);
-  assert.match(flattenErrors(invalid.error).companionDocumentNumber, /mismo documento/);
+  assert.match(flattenErrors(invalid.error)["companions.0.documentNumber"], /mismo documento/);
+  const repeated = registrationSchema.safeParse({ ...input, companions: [
+    { fullName: "Luis Pérez", documentType: "DNI", documentNumber: "87654321" },
+    { fullName: "Rosa Pérez", documentType: "DNI", documentNumber: "87654321" },
+  ] });
+  assert.match(flattenErrors(repeated.error)["companions.1.documentNumber"], /repetido/);
   assert.equal(registrationSchema.safeParse({ ...input, email: "invalid", documentNumber: "123" }).success, false);
 });
 

@@ -8,18 +8,25 @@ import { extractLogoPalette } from "@/lib/logo-colors";
 import type { EventRow } from "@/lib/types";
 import { FieldError, FormMessage, SubmitButton } from "./ui";
 
+export interface ProjectOption { id: string; name: string; tenant_id: string; tenant_name: string }
+
 interface Props {
   event?: EventRow;
-  tenants: { id: string; name: string }[];
+  projects: ProjectOption[];
+  defaultProjectId?: string;
 }
 
 const COMPANION_OPTIONS = [
   { value: "NONE", title: "Sin acompañante", hint: "Solo se registra el titular" },
-  { value: "OPTIONAL", title: "Opcional", hint: "El asistente decide si lleva a alguien" },
-  { value: "REQUIRED", title: "Obligatorio", hint: "Debe registrar a un acompañante" },
+  { value: "OPTIONAL", title: "Opcional", hint: "El asistente decide si va solo o acompañado" },
+  { value: "REQUIRED", title: "Obligatorio", hint: "Debe registrar al menos un acompañante" },
 ] as const;
 
-export function EventForm({ event, tenants }: Props) {
+export function EventForm({ event, projects, defaultProjectId }: Props) {
+  const [companionMode, setCompanionMode] = useState(event?.companion_mode ?? "NONE");
+  // Al editar, solo proyectos del mismo cliente
+  const options = event ? projects.filter((p) => p.tenant_id === event.tenant_id) : projects;
+  const tenantsInOptions = [...new Map(options.map((p) => [p.tenant_id, p.tenant_name])).entries()];
   const [state, action] = useActionState<FormState, FormData>(saveEvent, {});
   const [name, setName] = useState(event?.name ?? "");
   const [slug, setSlug] = useState(event?.slug ?? "");
@@ -73,14 +80,17 @@ export function EventForm({ event, tenants }: Props) {
       <section className="grid gap-5 sm:grid-cols-2">
         <div className="sm:col-span-2"><h2 className="text-lg font-semibold">Información del evento</h2><p className="mt-1 text-sm text-slate-500">Estos datos aparecerán en el portal de tus invitados.</p></div>
         <div className="sm:col-span-2">
-          <label className="label" htmlFor="tenantId">Cliente</label>
-          <select id="tenantId" name="tenantId" defaultValue={event?.tenant_id ?? tenants[0]?.id} className="input" disabled={Boolean(event)}>
-            {tenants.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
+          <label className="label" htmlFor="projectId">Cliente y proyecto</label>
+          <select id="projectId" name="projectId" defaultValue={event?.project_id ?? defaultProjectId ?? options[0]?.id} className="input">
+            {tenantsInOptions.map(([tenantId, tenantName]) => (
+              <optgroup key={tenantId} label={tenantName}>
+                {options.filter((p) => p.tenant_id === tenantId).map((p) => (
+                  <option key={p.id} value={p.id}>{tenantName} · {p.name}</option>
+                ))}
+              </optgroup>
             ))}
           </select>
-          {event && <input type="hidden" name="tenantId" value={event.tenant_id} />}
-          <FieldError error={e.tenantId} />
+          <FieldError error={e.projectId} />
         </div>
 
         <div className="sm:col-span-2">
@@ -193,7 +203,7 @@ export function EventForm({ event, tenants }: Props) {
         <div className="grid gap-3 sm:grid-cols-3">
           {COMPANION_OPTIONS.map((o) => (
             <label key={o.value} className="flex cursor-pointer gap-3 rounded-xl border border-slate-200 p-4 has-[:checked]:border-slate-900 has-[:checked]:ring-2 has-[:checked]:ring-slate-900/10">
-              <input type="radio" name="companionMode" value={o.value} defaultChecked={(event?.companion_mode ?? "NONE") === o.value} className="mt-1" />
+              <input type="radio" name="companionMode" value={o.value} checked={companionMode === o.value} onChange={() => setCompanionMode(o.value)} className="mt-1" />
               <span className="text-sm">
                 <span className="block font-medium">{o.title}</span>
                 <span className="text-slate-500">{o.hint}</span>
@@ -201,6 +211,15 @@ export function EventForm({ event, tenants }: Props) {
             </label>
           ))}
         </div>
+        {companionMode !== "NONE" && (
+          <div className="max-w-xs">
+            <label className="label" htmlFor="maxCompanions">Máximo de acompañantes por invitado</label>
+            <input id="maxCompanions" name="maxCompanions" type="number" min={1} max={10}
+              defaultValue={Math.max(1, event?.max_companions ?? 1)} className="input" />
+            <p className="mt-1 text-xs text-slate-500">Cada acompañante registra nombre y documento, y ocupa un cupo.</p>
+            <FieldError error={e.maxCompanions} />
+          </div>
+        )}
       </section>
 
       <section className="space-y-3">

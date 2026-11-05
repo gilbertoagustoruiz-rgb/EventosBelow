@@ -12,7 +12,7 @@ interface ConfirmationEmail {
   startsAt: string;
   endsAt: string;
   token: string;
-  companionName: string | null;
+  companionNames: string[];
 }
 
 const escape = (s: string) =>
@@ -33,7 +33,7 @@ function render(m: ConfirmationEmail) {
         <p style="margin:0 0 4px">Hola <strong>${escape(m.fullName)}</strong>, tu lugar está reservado.</p>
         <p style="margin:0 0 4px;color:#334155">${escape(when)}</p>
         ${m.venue ? `<p style="margin:0 0 4px;color:#334155">${escape(m.venue)}</p>` : ""}
-        ${m.companionName ? `<p style="margin:12px 0 0;color:#334155">Acompañante: <strong>${escape(m.companionName)}</strong></p>` : ""}
+        ${m.companionNames.length ? `<p style="margin:12px 0 0;color:#334155">${m.companionNames.length === 1 ? "Acompañante" : "Acompañantes"}: <strong>${m.companionNames.map(escape).join(", ")}</strong></p>` : ""}
         <div style="text-align:center;margin:28px 0">
           <img src="${qrUrl}" width="220" height="220" alt="Código QR de acceso" style="border:1px solid #e2e8f0;border-radius:12px;padding:8px" />
           <p style="margin:8px 0 0;font-family:monospace;font-size:12px;color:#64748b">${m.token.slice(0, 8).toUpperCase()}</p>

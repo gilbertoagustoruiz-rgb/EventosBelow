@@ -1,26 +1,24 @@
 import "server-only";
 
 /**
- * Envuelve una consulta de inscripciones y agrega `checked_in_by_label`:
- * el promotor que acreditó (último registro de auditoría), si no el coordinador
- * con sesión, y si no "Enlace general" cuando hubo ingreso por el enlace del evento.
+ * Envuelve una consulta de inscripciones y agrega:
+ *  - `checked_in_by_label`: quién registró el último ingreso (empleado; si no, "Enlace general")
+ *  - `companions_in`: acompañantes que ya ingresaron
+ *  - `companions_list`: "Nombre (DNI 123)" de cada acompañante
  * `inner` debe devolver filas de `registrations`; `orderBy` usa el alias r.
  */
 export function withCheckinBy(inner: string, orderBy: string) {
   return `select r.*,
-         coalesce(pc.full_name, u.full_name, u.email,
-                  case when r.holder_checked_in_at is not null or r.companion_checked_in_at is not null
-                       then 'Enlace general' end) as checked_in_by_label
+         case when lg.id is not null then coalesce(em.full_name, 'Enlace general') end as checked_in_by_label,
+         (select count(*) from companions c where c.registration_id = r.id and c.checked_in_at is not null)::int as companions_in,
+         (select string_agg(c.full_name || ' (' || c.document_type || ' ' || c.document_number || ')', '; ' order by c.position)
+            from companions c where c.registration_id = r.id) as companions_list
     from (${inner}) r
-    left join users u on u.id = r.checked_in_by
     left join lateral (
-      select p.full_name
-        from promoter_checkins c
-        join event_promoters ep on ep.id = c.promoter_id
-        join employees p on p.id = ep.employee_id
-       where c.registration_id = r.id
-       order by c.checked_at desc
-       limit 1
-    ) pc on true
+      select l.id, l.employee_id from checkin_log l
+       where l.registration_id = r.id and l.result = 'INGRESO'
+       order by l.created_at desc limit 1
+    ) lg on true
+    left join employees em on em.id = lg.employee_id
    order by ${orderBy}`;
 }

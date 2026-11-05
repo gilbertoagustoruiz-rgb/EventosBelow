@@ -17,8 +17,8 @@ const passwordHash = await hashPassword(password);
 const pool = createPool();
 try {
   const { rows } = await pool.query(
-    `insert into users (email, full_name, password_hash, is_platform_admin)
-     values ($1, $2, $3, true)
+    `insert into users (email, username, full_name, password_hash, is_platform_admin)
+     values ($1, $1, $2, $3, true)
      on conflict (email) do update
        set password_hash = excluded.password_hash,
            is_platform_admin = true,
