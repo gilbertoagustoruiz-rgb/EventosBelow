@@ -1,13 +1,14 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Building2, ScanLine } from "lucide-react";
+import { CalendarDays, Building2, ScanLine, Users } from "lucide-react";
 
 export function AdminNavigation({ platformAdmin }: { platformAdmin: boolean }) {
   const pathname = usePathname();
   const links = [
     { href: "/admin", label: "Mis eventos", icon: CalendarDays, active: pathname === "/admin" || pathname.startsWith("/admin/eventos") },
     { href: "/admin/clientes", label: platformAdmin ? "Clientes y equipo" : "Mi equipo", icon: Building2, active: pathname.startsWith("/admin/clientes") },
+    { href: "/admin/promotores", label: "Promotores", icon: Users, active: pathname.startsWith("/admin/promotores") },
     { href: "/checkin", label: "Acreditar asistentes", icon: ScanLine, active: false },
   ];
   return <nav aria-label="Administración" className="flex gap-2 overflow-x-auto pb-1">

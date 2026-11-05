@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { authorizeCheckin } from "@/lib/auth";
-import { query, queryOne } from "@/lib/db";
+import { query, queryOne, transaction } from "@/lib/db";
 import type { Registration } from "@/lib/types";
 
 /** Estado visual de una validación */
@@ -166,12 +166,25 @@ export async function performCheckIn(input: z.input<typeof checkInSchema>): Prom
   const owns = await queryOne("select 1 from registrations where id = $1 and event_id = $2", [registrationId, eventId]);
   if (!owns) return { state: "NOT_FOUND", person: null };
 
-  const res = await queryOne<{ r: { result: string } }>("select check_in($1, $2, $3, $4) as r", [
-    registrationId,
-    eventDateId,
-    target,
-    userId,
-  ]);
+  // Acreditación y auditoría en una sola transacción: nunca confirmar sin registrar al promotor.
+  const res = await transaction(async client => {
+    if (key) {
+      const access = await client.query<{id:string}>(`select ep.id from event_promoters ep
+        join promoters p on p.id=ep.promoter_id
+        where ep.event_id=$1 and ep.access_key=$2 and ep.is_active and p.is_active
+        for update of ep,p`,[eventId,key]);
+      if (access.rows.length) {
+        const result=await client.query<{r:{result:string}}>("select check_in($1,$2,$3,$4) as r",[registrationId,eventDateId,target,userId]);
+        if(result.rows[0]?.r.result==="OK")await client.query("insert into promoter_checkins(promoter_id,registration_id,target) values($1,$2,$3)",[access.rows[0].id,registrationId,target]);
+        return result.rows[0]??null;
+      }
+      // Conserva compatibilidad con el enlace general del evento.
+      const legacy=await client.query("select 1 from events where id=$1 and checkin_key=$2",[eventId,key]);
+      if(!legacy.rows.length)throw new Error("Enlace de acreditación revocado");
+    }
+    const result=await client.query<{r:{result:string}}>("select check_in($1,$2,$3,$4) as r",[registrationId,eventDateId,target,userId]);
+    return result.rows[0]??null;
+  });
 
   const fresh = await lookupRegistration({ eventId, eventDateId, registrationId, key });
   return { ...fresh, justCheckedIn: res?.r.result === "OK" };
