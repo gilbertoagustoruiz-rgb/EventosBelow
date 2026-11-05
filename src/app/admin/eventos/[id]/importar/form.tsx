@@ -8,7 +8,6 @@ export function ImportForm({eventId,dates}:{eventId:string;dates:{id:string;labe
  const [file,setFile]=useState<File|null>(null);
  const [dateId,setDateId]=useState(dates[0]?.id??"");
  const [confirmed,setConfirmed]=useState(false);
- const [busy,setBusy]=useState(false);
  async function submit(action:(fd:FormData)=>void){
   if(!file||!dateId)return;
   const fd=new FormData();fd.set("eventId",eventId);fd.set("dateId",dateId);fd.set("file",file);
@@ -24,11 +23,11 @@ export function ImportForm({eventId,dates}:{eventId:string;dates:{id:string;labe
    </label>
   </div>
   <p className="text-sm text-slate-600">La primera fila debe contener los encabezados. Se reconocen automáticamente nombres alternativos de Nombre, DNI/Documento, Correo, Celular, Empresa, Cargo y Acompañante. El correo y celular son obligatorios para completar la inscripción.</p>
-  <button type="button" disabled={!file||!dateId||previewPending||busy} className="btn-dark" onClick={()=>{setConfirmed(true);void submit(previewAction)}}>{previewPending?"Analizando…":"Analizar Excel y mostrar vista previa"}</button>
+  <button type="button" disabled={!file||!dateId||previewPending} className="btn-dark" onClick={()=>{setConfirmed(true);void submit(previewAction)}}>{previewPending?"Analizando…":"Analizar Excel y mostrar vista previa"}</button>
   {confirmed&&preview.message&&<div className="space-y-3"><p role="status" className="text-sm">{preview.message}</p>
    {preview.ok&&<><p className="text-sm font-semibold">Válidos: {preview.valid} · Con errores: {preview.invalid} · Ya registrados: {preview.duplicates}</p>
     <div className="max-h-80 overflow-auto"><table className="w-full text-left text-xs"><thead><tr><th>Fila</th><th>Nombre</th><th>Documento</th><th>Resultado</th></tr></thead><tbody>{preview.preview.map(r=><tr key={r.line} className="border-t"><td className="p-2">{r.line}</td><td className="p-2">{r.name}</td><td className="p-2">{r.document}</td><td className="p-2">{r.errors.join("; ")||"Válido"}</td></tr>)}</tbody></table></div>
-    {preview.valid>0&&<button type="button" className="btn-brand" disabled={commitPending||busy} onClick={()=>{setBusy(true);void submit(commitAction)}}>{commitPending?"Importando…":"Confirmar importación de filas válidas"}</button>}
+    {preview.valid>0&&<button type="button" className="btn-brand" disabled={commitPending} onClick={()=>{void submit(commitAction)}}>{commitPending?"Importando…":"Confirmar importación de filas válidas"}</button>}
    </>}
   </div>}
   {result.message&&<p role="status" className="text-sm font-medium">{result.message} {result.ok&&`Importados: ${result.imported}. Duplicados: ${result.duplicates}.`}</p>}
