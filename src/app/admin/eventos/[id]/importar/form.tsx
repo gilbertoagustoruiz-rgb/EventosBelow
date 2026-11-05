@@ -1,5 +1,5 @@
 "use client";
-import { useActionState, useState } from "react";
+import { startTransition, useActionState, useState } from "react";
 import { previewImport,commitImport,type ImportResult } from "./actions";
 const initial:ImportResult={ok:false,message:"",valid:0,invalid:0,duplicates:0,imported:0,preview:[]};
 export function ImportForm({eventId,dates}:{eventId:string;dates:{id:string;label:string}[]}){
@@ -11,7 +11,7 @@ export function ImportForm({eventId,dates}:{eventId:string;dates:{id:string;labe
  async function submit(action:(fd:FormData)=>void){
   if(!file||!dateId)return;
   const fd=new FormData();fd.set("eventId",eventId);fd.set("dateId",dateId);fd.set("file",file);
-  action(fd);
+  startTransition(()=>action(fd));
  }
  return <div className="space-y-5">
   <div className="grid gap-4 sm:grid-cols-2">
