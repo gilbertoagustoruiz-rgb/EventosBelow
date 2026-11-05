@@ -1,0 +1,94 @@
+# Especificación de DigitalOcean App Platform
+# Uso desde tu computadora:   doctl apps create --spec .do/app.yaml
+# O en el panel: Apps → tu app → Settings → App Spec → Edit, y pega este contenido.
+#
+# Antes de usarla, reemplaza los valores marcados con CAMBIAR.
+name: eventos-below
+region: nyc
+
+databases:
+  # Tu Managed Database existente. Crea antes una base "eventos_below" en el cluster
+  # (Databases → cluster → Users & Databases → Add new database).
+  - name: eventos-db
+    engine: PG
+    production: true
+    cluster_name: CAMBIAR-nombre-de-tu-cluster
+    db_name: eventos_below
+    db_user: doadmin
+
+services:
+  - name: web
+    github:
+      repo: gilbertoagustoruiz-rgb/EventosBelow
+      branch: main
+      deploy_on_push: true
+    environment_slug: node-js
+    build_command: npm run build
+    run_command: npm start
+    http_port: 8080
+    instance_size_slug: apps-s-1vcpu-1gb
+    instance_count: 1
+    health_check:
+      http_path: /
+    envs:
+      - key: NODE_ENV
+        value: production
+        scope: RUN_AND_BUILD_TIME
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+        scope: RUN_AND_BUILD_TIME
+      - key: DATABASE_URL
+        value: ${eventos-db.DATABASE_URL}
+        scope: RUN_TIME
+      - key: DATABASE_CA_CERT
+        value: ${eventos-db.CA_CERT}
+        scope: RUN_TIME
+      - key: APP_URL
+        value: ${APP_URL}
+        scope: RUN_TIME
+      - key: SESSION_SECRET
+        type: SECRET
+        value: CAMBIAR-cadena-aleatoria-de-48-caracteres
+        scope: RUN_TIME
+      # Spaces (logos)
+      - key: SPACES_BUCKET
+        value: CAMBIAR-nombre-del-space
+        scope: RUN_TIME
+      - key: SPACES_REGION
+        value: nyc3
+        scope: RUN_TIME
+      - key: SPACES_KEY
+        type: SECRET
+        value: CAMBIAR
+        scope: RUN_TIME
+      - key: SPACES_SECRET
+        type: SECRET
+        value: CAMBIAR
+        scope: RUN_TIME
+      # Correo (opcional; vacío = simulado en los logs)
+      - key: RESEND_API_KEY
+        type: SECRET
+        value: ""
+        scope: RUN_TIME
+      - key: EMAIL_FROM
+        value: "Eventos Below <eventos@tudominio.com>"
+        scope: RUN_TIME
+
+jobs:
+  # Aplica las migraciones pendientes antes de cada despliegue
+  - name: migrate
+    kind: PRE_DEPLOY
+    github:
+      repo: gilbertoagustoruiz-rgb/EventosBelow
+      branch: main
+      deploy_on_push: true
+    environment_slug: node-js
+    run_command: npm run db:migrate
+    instance_size_slug: apps-s-1vcpu-0.5gb
+    envs:
+      - key: DATABASE_URL
+        value: ${eventos-db.DATABASE_URL}
+        scope: RUN_TIME
+      - key: DATABASE_CA_CERT
+        value: ${eventos-db.CA_CERT}
+        scope: RUN_TIME

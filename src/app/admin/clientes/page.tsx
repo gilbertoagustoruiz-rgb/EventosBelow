@@ -1,37 +1,39 @@
 import { notFound } from "next/navigation";
 import { Building2, Trash2 } from "lucide-react";
-import { canAdminTenant, requireViewer } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { MemberForm, TenantForm } from "@/components/admin/tenant-forms";
+import { adminTenantIds, requireViewer } from "@/lib/auth";
+import { query } from "@/lib/db";
+import { MemberForm, ResetPasswordButton, TenantForm } from "@/components/admin/tenant-forms";
 import { ConfirmButton } from "@/components/admin/ui";
 import { removeMember } from "../actions";
-import type { Tenant } from "@/lib/types";
+import type { MemberRole, Tenant } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Clientes" };
 
 export default async function TenantsPage() {
   const viewer = await requireViewer();
-  const supabase = await createClient();
+  const filter = viewer.isPlatformAdmin ? null : adminTenantIds(viewer);
+  if (filter && filter.length === 0) notFound();
 
-  const { data } = await supabase.from("tenants").select("*").order("name").returns<Tenant[]>();
-  const tenants = (data ?? []).filter((t) => canAdminTenant(viewer, t.id));
-  if (!viewer.isPlatformAdmin && tenants.length === 0) notFound();
-
-  const { data: members } = await supabase
-    .from("tenant_members")
-    .select("tenant_id, user_id, role")
-    .in("tenant_id", tenants.map((t) => t.id));
-
-  // Los correos viven en auth.users: se resuelven con service_role tras autorizar
-  const emails = new Map<string, string>();
-  const ids = new Set((members ?? []).map((m) => m.user_id as string));
-  if (ids.size) {
-    const admin = createAdminClient();
-    const { data: users } = await admin.auth.admin.listUsers({ perPage: 1000 });
-    users.users.forEach((u) => ids.has(u.id) && emails.set(u.id, u.email ?? ""));
-  }
+  const tenants = await query<Tenant>(
+    "select * from tenants where ($1::uuid[] is null or id = any($1)) order by name",
+    [filter],
+  );
+  const members = await query<{
+    tenant_id: string;
+    user_id: string;
+    role: MemberRole;
+    email: string;
+    full_name: string | null;
+    must_change_password: boolean;
+    last_login_at: string | null;
+  }>(
+    `select m.tenant_id, m.user_id, m.role, u.email, u.full_name, u.must_change_password, u.last_login_at
+       from tenant_members m join users u on u.id = m.user_id
+      where m.tenant_id = any($1)
+      order by u.email`,
+    [tenants.map((t) => t.id)],
+  );
 
   return (
     <div className="space-y-8">
@@ -48,7 +50,7 @@ export default async function TenantsPage() {
       )}
 
       {tenants.map((t) => {
-        const ms = (members ?? []).filter((m) => m.tenant_id === t.id);
+        const ms = members.filter((m) => m.tenant_id === t.id);
         return (
           <section key={t.id} className="card p-6">
             <div className="flex items-start gap-3">
@@ -65,19 +67,25 @@ export default async function TenantsPage() {
 
             <ul className="mt-5 divide-y divide-slate-100 text-sm">
               {ms.map((m) => (
-                <li key={m.user_id} className="flex items-center gap-3 py-2.5">
-                  <span className="flex-1">{emails.get(m.user_id) ?? m.user_id}</span>
+                <li key={m.user_id} className="flex flex-wrap items-center gap-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate">{m.full_name ? `${m.full_name} · ` : ""}{m.email}</p>
+                    {m.must_change_password && <p className="text-xs text-amber-700">Aún no cambia su contraseña temporal</p>}
+                  </div>
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
                     {m.role === "CLIENT_ADMIN" ? "Administrador" : "Anfitrión"}
                   </span>
                   {m.user_id !== viewer.userId && (
-                    <form action={removeMember}>
-                      <input type="hidden" name="tenantId" value={t.id} />
-                      <input type="hidden" name="userId" value={m.user_id} />
-                      <ConfirmButton message="¿Quitar el acceso de este usuario?" className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600">
-                        <Trash2 className="size-4" />
-                      </ConfirmButton>
-                    </form>
+                    <>
+                      <ResetPasswordButton tenantId={t.id} userId={m.user_id} />
+                      <form action={removeMember}>
+                        <input type="hidden" name="tenantId" value={t.id} />
+                        <input type="hidden" name="userId" value={m.user_id} />
+                        <ConfirmButton message="¿Quitar el acceso de este usuario?" className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600">
+                          <Trash2 className="size-4" />
+                        </ConfirmButton>
+                      </form>
+                    </>
                   )}
                 </li>
               ))}

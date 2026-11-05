@@ -1,34 +1,51 @@
 import Link from "next/link";
-import { ChevronRight, ScanLine } from "lucide-react";
-import { requireViewer } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
-import { formatDayShort, todayIn } from "@/lib/format";
+import { ChevronRight, KeyRound, LogOut, ScanLine } from "lucide-react";
+import { requireViewer, visibleTenantFilter } from "@/lib/auth";
+import { query } from "@/lib/db";
+import { formatDayShort } from "@/lib/format";
+import { logout } from "@/app/login/actions";
 
 export const metadata = { title: "Acreditación" };
 export const dynamic = "force-dynamic";
 
-/** Lista de eventos que el anfitrión puede acreditar (RLS filtra por tenant). */
+/** Eventos con fechas de hoy en adelante que el usuario puede acreditar. */
 export default async function CheckinIndex() {
-  await requireViewer();
-  const supabase = await createClient();
-  const { data: events } = await supabase
-    .from("events")
-    .select("id, name, timezone, primary_color, tenants(name), event_dates(event_day)")
-    .order("created_at", { ascending: false });
-
-  const list = (events ?? [])
-    .map((e) => {
-      const today = todayIn(e.timezone);
-      const days = (e.event_dates as { event_day: string }[]).map((d) => d.event_day).sort();
-      const next = days.find((d) => d >= today);
-      return { ...e, next, isToday: next === today };
-    })
-    .filter((e) => e.next)
-    .sort((a, b) => a.next!.localeCompare(b.next!));
+  const viewer = await requireViewer();
+  const list = await query<{
+    id: string;
+    name: string;
+    primary_color: string;
+    tenant_name: string;
+    next_day: string;
+    is_today: boolean;
+  }>(
+    `select e.id, e.name, e.primary_color, t.name as tenant_name,
+            min(d.event_day) as next_day,
+            min(d.event_day) = (now() at time zone e.timezone)::date as is_today
+       from events e
+       join tenants t on t.id = e.tenant_id
+       join event_dates d on d.event_id = e.id and d.event_day >= (now() at time zone e.timezone)::date
+      where ($1::uuid[] is null or e.tenant_id = any($1))
+      group by e.id, t.name
+      order by next_day, e.name`,
+    [visibleTenantFilter(viewer)],
+  );
 
   return (
     <main className="mx-auto min-h-dvh max-w-xl bg-slate-950 px-4 py-8 text-white">
-      <ScanLine className="size-7 text-emerald-400" />
+      <div className="flex items-start justify-between">
+        <ScanLine className="size-7 text-emerald-400" />
+        <div className="flex gap-1">
+          <Link href="/cuenta" className="rounded-lg p-2 text-slate-400 hover:bg-white/10" aria-label="Cambiar contraseña">
+            <KeyRound className="size-4" />
+          </Link>
+          <form action={logout}>
+            <button className="rounded-lg p-2 text-slate-400 hover:bg-white/10" aria-label="Cerrar sesión">
+              <LogOut className="size-4" />
+            </button>
+          </form>
+        </div>
+      </div>
       <h1 className="mt-3 text-2xl font-bold">Acreditación</h1>
       <p className="mt-1 text-slate-400">Elige el evento que vas a acreditar.</p>
 
@@ -40,10 +57,10 @@ export default async function CheckinIndex() {
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{e.name}</p>
                 <p className="text-sm text-slate-400">
-                  {(e.tenants as unknown as { name: string } | null)?.name} · {formatDayShort(e.next!)}
+                  {e.tenant_name} · {formatDayShort(e.next_day)}
                 </p>
               </div>
-              {e.isToday && <span className="rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-300">Hoy</span>}
+              {e.is_today && <span className="rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-300">Hoy</span>}
               <ChevronRight className="size-5 text-slate-500" />
             </Link>
           </li>

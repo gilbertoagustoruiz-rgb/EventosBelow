@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CheckCircle2, Mail } from "lucide-react";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { queryOne } from "@/lib/db";
+import type { DocumentType, RegistrationStatus } from "@/lib/types";
 import { brandStyle } from "@/lib/format";
 import { TicketCard, type TicketData } from "@/components/registration/ticket-card";
 
@@ -18,21 +19,40 @@ export default async function TicketPage({ params, searchParams }: Props) {
   const [{ slug, token }, { nuevo }] = await Promise.all([params, searchParams]);
   if (!/^[a-f0-9]{32}$/.test(token)) notFound();
 
-  const db = createAdminClient();
-  const { data: r } = await db
-    .from("registrations")
-    .select(
-      `token, status, full_name, email, document_type, document_number, company, companion_full_name, holder_checked_in_at,
-       events!inner(slug, name, venue, logo_url, primary_color),
-       event_dates!inner(event_day, starts_at, ends_at, label)`,
-    )
-    .eq("token", token)
-    .eq("events.slug", slug)
-    .maybeSingle();
+  const r = await queryOne<{
+    token: string;
+    status: RegistrationStatus;
+    full_name: string;
+    email: string;
+    document_type: DocumentType;
+    document_number: string;
+    company: string | null;
+    companion_full_name: string | null;
+    holder_checked_in_at: string | null;
+    slug: string;
+    name: string;
+    venue: string | null;
+    logo_url: string | null;
+    primary_color: string;
+    event_day: string;
+    starts_at: string;
+    ends_at: string;
+    label: string | null;
+  }>(
+    `select r.token, r.status, r.full_name, r.email, r.document_type, r.document_number, r.company,
+            r.companion_full_name, r.holder_checked_in_at,
+            e.slug, e.name, e.venue, e.logo_url, e.primary_color,
+            d.event_day, d.starts_at::text, d.ends_at::text, d.label
+       from registrations r
+       join events e on e.id = r.event_id
+       join event_dates d on d.id = r.event_date_id
+      where r.token = $1 and e.slug = $2`,
+    [token, slug],
+  );
   if (!r) notFound();
 
-  const event = r.events as unknown as { slug: string; name: string; venue: string | null; logo_url: string | null; primary_color: string };
-  const date = r.event_dates as unknown as { event_day: string; starts_at: string; ends_at: string; label: string | null };
+  const event = { slug: r.slug, name: r.name, venue: r.venue, logo_url: r.logo_url, primary_color: r.primary_color };
+  const date = { event_day: r.event_day, starts_at: r.starts_at, ends_at: r.ends_at, label: r.label };
 
   const ticket: TicketData = {
     token: r.token,

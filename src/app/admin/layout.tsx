@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { KeyRound, LogOut } from "lucide-react";
 import { requireViewer } from "@/lib/auth";
-import { signOut } from "./actions";
+import { logout } from "@/app/login/actions";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const viewer = await requireViewer();
@@ -28,7 +28,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="hidden text-slate-500 sm:inline">{viewer.email}</span>
             {viewer.isPlatformAdmin && <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">SuperAdmin</span>}
-            <form action={signOut}>
+            <Link href="/cuenta" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Cambiar contraseña">
+              <KeyRound className="size-4" />
+            </Link>
+            <form action={logout}>
               <button className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Cerrar sesión">
                 <LogOut className="size-4" />
               </button>

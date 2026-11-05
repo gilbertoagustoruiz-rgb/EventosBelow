@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { CalendarDays, Plus } from "lucide-react";
 import { adminTenantIds, requireViewer } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { query } from "@/lib/db";
 import { formatDayShort } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -9,11 +9,34 @@ export const metadata = { title: "Eventos" };
 
 export default async function AdminHome() {
   const viewer = await requireViewer();
-  const supabase = await createClient();
-  const { data: events } = await supabase
-    .from("events")
-    .select("id, name, slug, is_published, registration_open, primary_color, logo_url, tenants(name), event_dates(event_day, capacity, registered_count)")
-    .order("created_at", { ascending: false });
+  const events = await query<{
+    id: string;
+    name: string;
+    slug: string;
+    is_published: boolean;
+    registration_open: boolean;
+    primary_color: string;
+    logo_url: string | null;
+    tenant_name: string;
+    first_day: string | null;
+    date_count: number;
+    capacity: number;
+    taken: number;
+  }>(
+    `select e.id, e.name, e.slug, e.is_published, e.registration_open, e.primary_color, e.logo_url,
+            t.name as tenant_name,
+            min(d.event_day) as first_day,
+            count(d.id) as date_count,
+            coalesce(sum(d.capacity), 0)::int as capacity,
+            coalesce(sum(d.registered_count), 0)::int as taken
+       from events e
+       join tenants t on t.id = e.tenant_id
+       left join event_dates d on d.event_id = e.id
+      where ($1::uuid[] is null or e.tenant_id = any($1))
+      group by e.id, t.name
+      order by e.created_at desc`,
+    [viewer.isPlatformAdmin ? null : adminTenantIds(viewer)],
+  );
 
   const canCreate = viewer.isPlatformAdmin || adminTenantIds(viewer).length > 0;
 
@@ -32,11 +55,8 @@ export default async function AdminHome() {
       </div>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {(events ?? []).map((e) => {
-          const dates = (e.event_dates as { event_day: string; capacity: number; registered_count: number }[]) ?? [];
-          const cap = dates.reduce((s, d) => s + d.capacity, 0);
-          const taken = dates.reduce((s, d) => s + d.registered_count, 0);
-          const first = dates.map((d) => d.event_day).sort()[0];
+        {events.map((e) => {
+          const { capacity: cap, taken, first_day: first, date_count } = e;
           return (
             <Link key={e.id} href={`/admin/eventos/${e.id}`} className="card group overflow-hidden transition hover:shadow-md">
               <div className="h-2" style={{ background: e.primary_color }} />
@@ -44,7 +64,7 @@ export default async function AdminHome() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                      {(e.tenants as unknown as { name: string } | null)?.name}
+                      {e.tenant_name}
                     </p>
                     <h2 className="mt-0.5 truncate font-semibold group-hover:underline">{e.name}</h2>
                   </div>
@@ -56,7 +76,7 @@ export default async function AdminHome() {
                 <div className="mt-4 flex items-center gap-2 text-sm text-slate-600">
                   <CalendarDays className="size-4" />
                   {first ? <span>{formatDayShort(first)}</span> : "Sin fechas"}
-                  {dates.length > 1 && <span className="text-slate-400">+{dates.length - 1}</span>}
+                  {date_count > 1 && <span className="text-slate-400">+{date_count - 1}</span>}
                 </div>
                 <div className="mt-4 flex items-center justify-between text-sm">
                   <span className="tabular-nums text-slate-700">
@@ -75,7 +95,7 @@ export default async function AdminHome() {
             </Link>
           );
         })}
-        {(events ?? []).length === 0 && (
+        {events.length === 0 && (
           <div className="card col-span-full p-10 text-center text-slate-500">Aún no hay eventos.</div>
         )}
       </div>

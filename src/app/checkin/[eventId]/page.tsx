@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { requireEvent } from "@/lib/auth";
+import { query } from "@/lib/db";
 import { todayIn } from "@/lib/format";
 import { CheckinConsole } from "@/components/checkin/checkin-console";
 import type { EventDate } from "@/lib/types";
@@ -10,16 +11,11 @@ export const viewport: Viewport = { themeColor: "#020617", maximumScale: 1 };
 
 export default async function CheckinPage({ params }: { params: Promise<{ eventId: string }> }) {
   const { eventId } = await params;
-  const { supabase, event } = await requireEvent(eventId, "host");
-
-  const { data } = await supabase
-    .from("event_dates")
-    .select("*")
-    .eq("event_id", event.id)
-    .order("event_day")
-    .order("starts_at")
-    .returns<EventDate[]>();
-  const dates = data ?? [];
+  const { event } = await requireEvent(eventId, "host");
+  const dates = await query<EventDate>(
+    "select * from event_dates where event_id = $1 order by event_day, starts_at",
+    [event.id],
+  );
 
   if (dates.length === 0) {
     return (

@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { requireEvent } from "@/lib/auth";
+import { query } from "@/lib/db";
 import { formatDateTime, formatTime } from "@/lib/format";
 import { slugify } from "@/lib/validation";
 import type { EventDate, Registration } from "@/lib/types";
@@ -15,23 +16,18 @@ const STATUS: Record<Registration["status"], string> = {
 /** GET /admin/eventos/:id/exportar?formato=xlsx|csv&fecha=<eventDateId> */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { supabase, event } = await requireEvent(id, "admin");
+  const { event } = await requireEvent(id, "admin");
   const url = new URL(req.url);
   const format = url.searchParams.get("formato") === "csv" ? "csv" : "xlsx";
-  const dateFilter = url.searchParams.get("fecha");
+  const fecha = url.searchParams.get("fecha");
+  const dateFilter = fecha && /^[0-9a-f-]{36}$/i.test(fecha) ? fecha : null;
 
-  const { data: dates } = await supabase.from("event_dates").select("*").eq("event_id", id).returns<EventDate[]>();
-  const dateById = new Map((dates ?? []).map((d) => [d.id, d]));
-
-  // Paginado: PostgREST limita filas por respuesta
-  const rows: Registration[] = [];
-  for (let from = 0; ; from += 1000) {
-    let q = supabase.from("registrations").select("*").eq("event_id", id).order("created_at").range(from, from + 999);
-    if (dateFilter) q = q.eq("event_date_id", dateFilter);
-    const { data } = await q.returns<Registration[]>();
-    rows.push(...(data ?? []));
-    if (!data || data.length < 1000) break;
-  }
+  const dates = await query<EventDate>("select * from event_dates where event_id = $1", [id]);
+  const dateById = new Map(dates.map((d) => [d.id, d]));
+  const rows = await query<Registration>(
+    `select * from registrations where event_id = $1 and ($2::uuid is null or event_date_id = $2) order by created_at`,
+    [id, dateFilter],
+  );
 
   const tz = event.timezone;
   const columns = [
@@ -120,7 +116,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     { header: "Registros", key: "regs", width: 11 },
     { header: "Personas ingresadas", key: "in", width: 19 },
   ];
-  for (const d of (dates ?? []).sort((a, b) => a.event_day.localeCompare(b.event_day))) {
+  for (const d of [...dates].sort((a, b) => a.event_day.localeCompare(b.event_day))) {
     const rs = rows.filter((r) => r.event_date_id === d.id && r.status !== "CANCELADO");
     summary.addRow({
       day: d.event_day,

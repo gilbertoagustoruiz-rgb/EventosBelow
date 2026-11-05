@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { pgMessage, query, queryOne } from "@/lib/db";
 import { sendConfirmationEmail } from "@/lib/email";
 import { flattenErrors, registrationSchema, type RegistrationInput } from "@/lib/validation";
 
@@ -25,55 +25,65 @@ export async function registerAttendee(slug: string, input: RegistrationInput): 
     return { ok: false, code: "VALIDATION", message: "Revisa los campos marcados.", fieldErrors: flattenErrors(parsed.error) };
   }
   const d = parsed.data;
-  const db = createAdminClient();
 
   // La fecha debe pertenecer al evento del slug (evita registrar en eventos ajenos)
-  const { data: date } = await db
-    .from("event_dates")
-    .select("id, event_day, starts_at, ends_at, events!inner(id, slug, name, venue, primary_color)")
-    .eq("id", d.eventDateId)
-    .eq("events.slug", slug)
-    .maybeSingle();
+  const date = await queryOne<{
+    event_day: string;
+    starts_at: string;
+    ends_at: string;
+    slug: string;
+    name: string;
+    venue: string | null;
+    primary_color: string;
+  }>(
+    `select d.event_day, d.starts_at::text, d.ends_at::text, e.slug, e.name, e.venue, e.primary_color
+       from event_dates d join events e on e.id = d.event_id
+      where d.id = $1 and e.slug = $2`,
+    [d.eventDateId, slug],
+  );
   if (!date) return { ok: false, code: "DATE_NOT_FOUND", message: DB_ERRORS.DATE_NOT_FOUND };
 
-  const { data, error } = await db
-    .rpc("register_attendee", {
-      p_event_date_id: d.eventDateId,
-      p_full_name: d.fullName,
-      p_email: d.email,
-      p_phone: d.phone,
-      p_document_type: d.documentType,
-      p_document_number: d.documentNumber,
-      p_company: d.company ?? null,
-      p_job_title: d.jobTitle ?? null,
-      p_has_companion: d.hasCompanion,
-      p_companion_full_name: d.hasCompanion ? d.companionFullName : null,
-      p_companion_document_type: d.hasCompanion ? d.companionDocumentType : null,
-      p_companion_document_number: d.hasCompanion ? d.companionDocumentNumber : null,
-    })
-    .single<{ out_registration_id: string; out_token: string }>();
-
-  if (error || !data) {
-    const code = Object.keys(DB_ERRORS).find((k) => error?.message?.includes(k)) ?? "UNKNOWN";
-    if (code === "UNKNOWN") console.error("[register_attendee]", error);
+  let token: string;
+  try {
+    const [row] = await query<{ out_token: string }>(
+      `select out_token from register_attendee($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        d.eventDateId,
+        d.fullName,
+        d.email,
+        d.phone,
+        d.documentType,
+        d.documentNumber,
+        d.company ?? null,
+        d.jobTitle ?? null,
+        d.hasCompanion,
+        d.hasCompanion ? d.companionFullName : null,
+        d.hasCompanion ? d.companionDocumentType : null,
+        d.hasCompanion ? d.companionDocumentNumber : null,
+      ],
+    );
+    token = row.out_token;
+  } catch (err) {
+    const msg = pgMessage(err);
+    const code = Object.keys(DB_ERRORS).find((k) => msg.includes(k)) ?? "UNKNOWN";
+    if (code === "UNKNOWN") console.error("[register_attendee]", err);
     return { ok: false, code, message: DB_ERRORS[code] ?? "No pudimos completar tu registro. Inténtalo nuevamente." };
   }
 
-  const event = date.events as unknown as { slug: string; name: string; venue: string | null; primary_color: string };
   await sendConfirmationEmail({
     to: d.email,
     fullName: d.fullName,
-    eventName: event.name,
-    eventSlug: event.slug,
-    venue: event.venue,
-    brandColor: event.primary_color,
+    eventName: date.name,
+    eventSlug: date.slug,
+    venue: date.venue,
+    brandColor: date.primary_color,
     day: date.event_day,
     startsAt: date.starts_at,
     endsAt: date.ends_at,
-    token: data.out_token,
+    token,
     companionName: d.hasCompanion ? (d.companionFullName ?? null) : null,
   });
 
   revalidatePath(`/evento/${slug}`);
-  return { ok: true, token: data.out_token };
+  return { ok: true, token };
 }

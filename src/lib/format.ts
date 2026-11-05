@@ -61,8 +61,8 @@ export function brandStyle(hex: string) {
   return { "--brand": hex, "--brand-fg": readableOn(hex) } as React.CSSProperties;
 }
 
-/** URL pública: NEXT_PUBLIC_APP_URL → URL automática de Render → localhost */
+/** URL pública de la app (solo servidor). En DigitalOcean App Platform: APP_URL = ${APP_URL} */
 export function appUrl(path = "") {
-  const base = process.env.NEXT_PUBLIC_APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:3000";
+  const base = process.env.APP_URL || "http://localhost:3000";
   return `${base.replace(/\/$/, "")}${path}`;
 }

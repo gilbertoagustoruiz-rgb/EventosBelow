@@ -1,35 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
+import { useActionState } from "react";
+import { login, type LoginState } from "./actions";
+import { SubmitButton } from "@/components/admin/ui";
 
 export function LoginForm({ next }: { next: string }) {
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setPending(true);
-    setError(null);
-    const form = new FormData(e.currentTarget);
-    const { error } = await createClient().auth.signInWithPassword({
-      email: String(form.get("email")),
-      password: String(form.get("password")),
-    });
-    if (error) {
-      setError("Correo o contraseña incorrectos.");
-      setPending(false);
-      return;
-    }
-    router.replace(next);
-    router.refresh();
-  }
+  const [state, action] = useActionState<LoginState, FormData>(login, {});
 
   return (
-    <form onSubmit={onSubmit} className="mt-6 space-y-4">
+    <form action={action} className="mt-6 space-y-4">
+      <input type="hidden" name="next" value={next} />
       <div>
         <label className="label" htmlFor="email">Correo</label>
         <input id="email" name="email" type="email" autoComplete="email" required className="input" />
@@ -38,11 +18,8 @@ export function LoginForm({ next }: { next: string }) {
         <label className="label" htmlFor="password">Contraseña</label>
         <input id="password" name="password" type="password" autoComplete="current-password" required className="input" />
       </div>
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      <button className="btn-dark w-full" disabled={pending}>
-        {pending && <Loader2 className="size-4 animate-spin" />}
-        Ingresar
-      </button>
+      {state.error && <p className="text-sm text-red-600">{state.error}</p>}
+      <SubmitButton className="btn-dark w-full">Ingresar</SubmitButton>
     </form>
   );
 }

@@ -4,32 +4,24 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { canAdminTenant, requireEvent, requireViewer } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { pgCode, pgMessage, query, queryOne } from "@/lib/db";
+import { hashPassword, temporaryPassword } from "@/lib/password";
+import { storageConfigured, uploadPublicFile } from "@/lib/storage";
 import { flattenErrors, hexColorSchema, slugSchema } from "@/lib/validation";
-import { appUrl } from "@/lib/format";
 
 export interface FormState {
   ok?: boolean;
   message?: string;
   fieldErrors?: Record<string, string>;
+  /** Contraseña temporal de un usuario recién creado (se muestra una sola vez) */
+  tempPassword?: string;
 }
 
 const str = (fd: FormData, k: string) => {
   const v = fd.get(k);
   return typeof v === "string" ? v : undefined;
 };
-
-const isUnique = (e: { code?: string } | null) => e?.code === "23505";
-
-// -------------------------------------------------------------------------------------
-// Sesión
-// -------------------------------------------------------------------------------------
-export async function signOut() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
-  redirect("/login");
-}
+const UUID = /^[0-9a-f-]{36}$/i;
 
 // -------------------------------------------------------------------------------------
 // Clientes (tenants) — solo SuperAdmin
@@ -50,16 +42,16 @@ export async function createTenant(_: FormState, fd: FormData): Promise<FormStat
   if (!parsed.success) return { fieldErrors: flattenErrors(parsed.error) };
   const d = parsed.data;
 
-  const supabase = await createClient();
-  const { error } = await supabase.from("tenants").insert({
-    name: d.name,
-    slug: d.slug,
-    tax_id: d.taxId || null,
-    contact_name: d.contactName || null,
-    contact_email: d.contactEmail || null,
-  });
-  if (isUnique(error)) return { fieldErrors: { slug: "Ese identificador ya está en uso" } };
-  if (error) return { message: "No se pudo crear el cliente." };
+  try {
+    await query(
+      `insert into tenants (name, slug, tax_id, contact_name, contact_email) values ($1, $2, $3, $4, $5)`,
+      [d.name, d.slug, d.taxId || null, d.contactName || null, d.contactEmail || null],
+    );
+  } catch (err) {
+    if (pgCode(err) === "23505") return { fieldErrors: { slug: "Ese identificador ya está en uso" } };
+    console.error("[createTenant]", err);
+    return { message: "No se pudo crear el cliente." };
+  }
 
   revalidatePath("/admin/clientes");
   return { ok: true, message: "Cliente creado." };
@@ -68,52 +60,77 @@ export async function createTenant(_: FormState, fd: FormData): Promise<FormStat
 const memberSchema = z.object({
   tenantId: z.string().uuid(),
   email: z.string().trim().toLowerCase().email("Correo no válido"),
+  fullName: z.string().trim().max(120).optional(),
   role: z.enum(["CLIENT_ADMIN", "HOST"]),
 });
 
-/** Invita (o vincula si ya existe) a un usuario como admin o anfitrión de un cliente. */
-export async function inviteMember(_: FormState, fd: FormData): Promise<FormState> {
+/**
+ * Da acceso a un usuario sobre un cliente. Si el correo no existe, crea el usuario
+ * con una contraseña temporal que debe cambiar en su primer ingreso.
+ */
+export async function addMember(_: FormState, fd: FormData): Promise<FormState> {
   const viewer = await requireViewer();
   const parsed = memberSchema.safeParse(Object.fromEntries(fd));
   if (!parsed.success) return { fieldErrors: flattenErrors(parsed.error) };
-  const { tenantId, email, role } = parsed.data;
+  const { tenantId, email, fullName, role } = parsed.data;
   if (!canAdminTenant(viewer, tenantId)) return { message: "No autorizado." };
 
-  const admin = createAdminClient();
-  let userId: string | undefined;
-
-  const invite = await admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: appUrl("/login"),
-  });
-  if (invite.data.user) {
-    userId = invite.data.user.id;
-  } else {
-    // Ya registrado: lo buscamos
-    for (let page = 1; page <= 20 && !userId; page++) {
-      const { data } = await admin.auth.admin.listUsers({ page, perPage: 200 });
-      userId = data.users.find((u) => u.email?.toLowerCase() === email)?.id;
-      if (data.users.length < 200) break;
-    }
+  let user = await queryOne<{ id: string }>("select id from users where email = $1", [email]);
+  let tempPassword: string | undefined;
+  if (!user) {
+    tempPassword = temporaryPassword();
+    user = await queryOne<{ id: string }>(
+      `insert into users (email, full_name, password_hash, must_change_password)
+       values ($1, $2, $3, true) returning id`,
+      [email, fullName || null, await hashPassword(tempPassword)],
+    );
   }
-  if (!userId) return { message: "No se pudo invitar al usuario." };
 
-  const { error } = await admin
-    .from("tenant_members")
-    .upsert({ tenant_id: tenantId, user_id: userId, role }, { onConflict: "tenant_id,user_id" });
-  if (error) return { message: "No se pudo asignar el rol." };
+  await query(
+    `insert into tenant_members (tenant_id, user_id, role) values ($1, $2, $3)
+     on conflict (tenant_id, user_id) do update set role = excluded.role`,
+    [tenantId, user!.id, role],
+  );
 
   revalidatePath("/admin/clientes");
-  return { ok: true, message: invite.data.user ? `Invitación enviada a ${email}.` : `${email} vinculado.` };
+  return tempPassword
+    ? { ok: true, message: `Usuario creado: ${email}`, tempPassword }
+    : { ok: true, message: `${email} ya tenía cuenta: se le dio acceso.` };
 }
 
 export async function removeMember(fd: FormData) {
   const viewer = await requireViewer();
-  const tenantId = str(fd, "tenantId")!;
-  const userId = str(fd, "userId")!;
+  const tenantId = str(fd, "tenantId") ?? "";
+  const userId = str(fd, "userId") ?? "";
+  if (!UUID.test(tenantId) || !UUID.test(userId) || userId === viewer.userId) return;
   if (!canAdminTenant(viewer, tenantId)) return;
-  const supabase = await createClient();
-  await supabase.from("tenant_members").delete().eq("tenant_id", tenantId).eq("user_id", userId);
+  await query("delete from tenant_members where tenant_id = $1 and user_id = $2", [tenantId, userId]);
   revalidatePath("/admin/clientes");
+}
+
+/** Genera una nueva contraseña temporal para un miembro (p. ej. si la olvidó). */
+export async function resetMemberPassword(_: FormState, fd: FormData): Promise<FormState> {
+  const viewer = await requireViewer();
+  const tenantId = str(fd, "tenantId") ?? "";
+  const userId = str(fd, "userId") ?? "";
+  if (!UUID.test(tenantId) || !UUID.test(userId)) return { message: "Datos no válidos." };
+  if (!canAdminTenant(viewer, tenantId)) return { message: "No autorizado." };
+
+  // Solo usuarios de ese cliente, y un admin de cliente no puede tocar a un SuperAdmin
+  const target = await queryOne<{ email: string; is_platform_admin: boolean }>(
+    `select u.email, u.is_platform_admin from users u
+       join tenant_members m on m.user_id = u.id and m.tenant_id = $1
+      where u.id = $2`,
+    [tenantId, userId],
+  );
+  if (!target || (target.is_platform_admin && !viewer.isPlatformAdmin)) return { message: "No autorizado." };
+
+  const tempPassword = temporaryPassword();
+  await query(
+    `update users set password_hash = $2, must_change_password = true, password_changed_at = now() where id = $1`,
+    [userId, await hashPassword(tempPassword)],
+  );
+  return { ok: true, message: `Nueva contraseña temporal para ${target.email}`, tempPassword };
 }
 
 // -------------------------------------------------------------------------------------
@@ -135,17 +152,17 @@ const LOGO_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "
 const LOGO_MAX = 2 * 1024 * 1024;
 
 async function uploadLogo(eventId: string, file: File): Promise<string | { error: string }> {
+  if (!storageConfigured()) return { error: "El almacenamiento de logos (Spaces) no está configurado." };
   const ext = LOGO_TYPES[file.type];
   if (!ext) return { error: "El logo debe ser PNG, JPG o WEBP." };
   if (file.size > LOGO_MAX) return { error: "El logo no debe superar 2 MB." };
-
-  const admin = createAdminClient();
-  const path = `${eventId}/${Date.now()}.${ext}`;
-  const { error } = await admin.storage
-    .from("event-logos")
-    .upload(path, file, { contentType: file.type, upsert: false, cacheControl: "31536000" });
-  if (error) return { error: "No se pudo subir el logo." };
-  return admin.storage.from("event-logos").getPublicUrl(path).data.publicUrl;
+  try {
+    const body = new Uint8Array(await file.arrayBuffer());
+    return await uploadPublicFile(`event-logos/${eventId}/${Date.now()}.${ext}`, body, file.type);
+  } catch (err) {
+    console.error("[uploadLogo]", err);
+    return { error: "No se pudo subir el logo." };
+  }
 }
 
 export async function saveEvent(_: FormState, fd: FormData): Promise<FormState> {
@@ -167,40 +184,51 @@ export async function saveEvent(_: FormState, fd: FormData): Promise<FormState> 
   const d = parsed.data;
   if (!canAdminTenant(viewer, d.tenantId)) return { message: "No autorizado para este cliente." };
 
-  const row = {
-    tenant_id: d.tenantId,
-    name: d.name,
-    slug: d.slug,
-    description: d.description || null,
-    venue: d.venue || null,
-    primary_color: d.primaryColor.toLowerCase(),
-    companion_mode: d.companionMode,
-    is_published: d.isPublished,
-    registration_open: d.registrationOpen,
-  };
+  const values = [
+    d.name,
+    d.slug,
+    d.description || null,
+    d.venue || null,
+    d.primaryColor.toLowerCase(),
+    d.companionMode,
+    d.isPublished,
+    d.registrationOpen,
+  ];
 
-  const supabase = await createClient();
   let id = eventId;
-  if (id) {
-    await requireEvent(id, "admin");
-    const { error } = await supabase.from("events").update(row).eq("id", id);
-    if (isUnique(error)) return { fieldErrors: { slug: "Ese enlace ya lo usa otro evento" } };
-    if (error) return { message: "No se pudo guardar el evento." };
-  } else {
-    const { data, error } = await supabase.from("events").insert(row).select("id").single();
-    if (isUnique(error)) return { fieldErrors: { slug: "Ese enlace ya lo usa otro evento" } };
-    if (error || !data) return { message: "No se pudo crear el evento." };
-    id = data.id as string;
+  try {
+    if (id) {
+      const { event } = await requireEvent(id, "admin");
+      await query(
+        `update events set name = $1, slug = $2, description = $3, venue = $4, primary_color = $5,
+                companion_mode = $6, is_published = $7, registration_open = $8
+          where id = $9`,
+        [...values, event.id],
+      );
+    } else {
+      const row = await queryOne<{ id: string }>(
+        `insert into events (name, slug, description, venue, primary_color, companion_mode, is_published, registration_open, tenant_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
+        [...values, d.tenantId],
+      );
+      id = row!.id;
+    }
+  } catch (err) {
+    if (pgCode(err) === "23505") return { fieldErrors: { slug: "Ese enlace ya lo usa otro evento" } };
+    console.error("[saveEvent]", err);
+    return { message: "No se pudo guardar el evento." };
   }
 
   const logo = fd.get("logo");
   if (logo instanceof File && logo.size > 0) {
     const url = await uploadLogo(id, logo);
-    if (typeof url !== "string") return { fieldErrors: { logo: url.error } };
-    await supabase.from("events").update({ logo_url: url }).eq("id", id);
-  }
-  if (fd.get("removeLogo") === "on") {
-    await supabase.from("events").update({ logo_url: null }).eq("id", id);
+    if (typeof url !== "string") {
+      if (!eventId) redirect(`/admin/eventos/${id}?creado=1&logo=error`);
+      return { fieldErrors: { logo: url.error } };
+    }
+    await query("update events set logo_url = $2 where id = $1", [id, url]);
+  } else if (fd.get("removeLogo") === "on") {
+    await query("update events set logo_url = null where id = $1", [id]);
   }
 
   revalidatePath("/admin");
@@ -228,45 +256,53 @@ export async function addEventDate(_: FormState, fd: FormData): Promise<FormStat
   const parsed = dateSchema.safeParse(Object.fromEntries(fd));
   if (!parsed.success) return { fieldErrors: flattenErrors(parsed.error) };
   const d = parsed.data;
-  const { supabase } = await requireEvent(d.eventId, "admin");
+  await requireEvent(d.eventId, "admin");
 
-  const { error } = await supabase.from("event_dates").insert({
-    event_id: d.eventId,
-    event_day: d.eventDay,
-    starts_at: d.startsAt,
-    ends_at: d.endsAt,
-    label: d.label || null,
-    capacity: d.capacity,
-  });
-  if (isUnique(error)) return { message: "Ya existe una fecha con ese día y hora de inicio." };
-  if (error) return { message: "No se pudo agregar la fecha." };
+  try {
+    await query(
+      `insert into event_dates (event_id, event_day, starts_at, ends_at, label, capacity) values ($1, $2, $3, $4, $5, $6)`,
+      [d.eventId, d.eventDay, d.startsAt, d.endsAt, d.label || null, d.capacity],
+    );
+  } catch (err) {
+    if (pgCode(err) === "23505") return { message: "Ya existe una fecha con ese día y hora de inicio." };
+    console.error("[addEventDate]", err);
+    return { message: "No se pudo agregar la fecha." };
+  }
 
   revalidatePath(`/admin/eventos/${d.eventId}`);
   return { ok: true };
 }
 
 export async function updateCapacity(_: FormState, fd: FormData): Promise<FormState> {
-  const eventId = str(fd, "eventId")!;
-  const dateId = str(fd, "dateId")!;
+  const eventId = str(fd, "eventId") ?? "";
+  const dateId = str(fd, "dateId") ?? "";
   const capacity = Number(str(fd, "capacity"));
-  if (!Number.isInteger(capacity) || capacity < 1) return { message: "Aforo no válido." };
-  const { supabase } = await requireEvent(eventId, "admin");
+  if (!UUID.test(dateId) || !Number.isInteger(capacity) || capacity < 1 || capacity > 100_000) {
+    return { message: "Aforo no válido." };
+  }
+  await requireEvent(eventId, "admin");
 
-  const { error } = await supabase.from("event_dates").update({ capacity }).eq("id", dateId).eq("event_id", eventId);
-  // event_dates_capacity_ck impide bajar el aforo por debajo de los inscritos
-  if (error?.code === "23514") return { message: "El aforo no puede ser menor que los cupos ya ocupados." };
-  if (error) return { message: "No se pudo actualizar." };
+  try {
+    await query("update event_dates set capacity = $3 where id = $1 and event_id = $2", [dateId, eventId, capacity]);
+  } catch (err) {
+    // event_dates_capacity_ck impide bajar el aforo por debajo de los inscritos
+    if (pgCode(err) === "23514") return { message: "El aforo no puede ser menor que los cupos ya ocupados." };
+    return { message: "No se pudo actualizar." };
+  }
 
   revalidatePath(`/admin/eventos/${eventId}`);
   return { ok: true, message: "Aforo actualizado." };
 }
 
 export async function deleteEventDate(fd: FormData) {
-  const eventId = str(fd, "eventId")!;
-  const dateId = str(fd, "dateId")!;
-  const { supabase } = await requireEvent(eventId, "admin");
-  // La FK con ON DELETE RESTRICT protege fechas con registros
-  await supabase.from("event_dates").delete().eq("id", dateId).eq("event_id", eventId).eq("registered_count", 0);
+  const eventId = str(fd, "eventId") ?? "";
+  const dateId = str(fd, "dateId") ?? "";
+  if (!UUID.test(dateId)) return;
+  await requireEvent(eventId, "admin");
+  // Solo fechas sin inscritos (la FK con ON DELETE RESTRICT también lo protege)
+  await query("delete from event_dates where id = $1 and event_id = $2 and registered_count = 0", [dateId, eventId]).catch(
+    () => {},
+  );
   revalidatePath(`/admin/eventos/${eventId}`);
 }
 
@@ -274,9 +310,17 @@ export async function deleteEventDate(fd: FormData) {
 // Registros
 // -------------------------------------------------------------------------------------
 export async function cancelRegistration(fd: FormData) {
-  const eventId = str(fd, "eventId")!;
-  const registrationId = str(fd, "registrationId")!;
-  const { supabase } = await requireEvent(eventId, "admin");
-  await supabase.rpc("cancel_registration", { p_registration_id: registrationId });
+  const eventId = str(fd, "eventId") ?? "";
+  const registrationId = str(fd, "registrationId") ?? "";
+  if (!UUID.test(registrationId)) return;
+  await requireEvent(eventId, "admin");
+
+  const owns = await queryOne("select 1 from registrations where id = $1 and event_id = $2", [registrationId, eventId]);
+  if (!owns) return;
+  try {
+    await query("select cancel_registration($1)", [registrationId]);
+  } catch (err) {
+    if (!pgMessage(err).includes("ALREADY_CHECKED_IN")) console.error("[cancelRegistration]", err);
+  }
   revalidatePath(`/admin/eventos/${eventId}`);
 }

@@ -1,10 +1,6 @@
 import "server-only";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { todayIn } from "@/lib/format";
-import type { EventDate, EventRow, PublicDateOption } from "@/lib/types";
-
-const PUBLIC_EVENT_FIELDS =
-  "id, name, slug, description, venue, logo_url, primary_color, companion_mode, timezone, is_published, registration_open";
+import { query, queryOne } from "@/lib/db";
+import type { EventRow, PublicDateOption } from "@/lib/types";
 
 export type PublicEvent = Pick<
   EventRow,
@@ -21,32 +17,24 @@ export type PublicEvent = Pick<
   | "registration_open"
 >;
 
-/** Evento publicado por slug, con campos públicos solamente. */
+/** Evento publicado por slug, solo con campos públicos. */
 export async function getPublicEvent(slug: string) {
-  const db = createAdminClient();
-  const { data } = await db
-    .from("events")
-    .select(PUBLIC_EVENT_FIELDS)
-    .eq("slug", slug)
-    .eq("is_published", true)
-    .maybeSingle<PublicEvent>();
-  return data;
+  return queryOne<PublicEvent>(
+    `select id, name, slug, description, venue, logo_url, primary_color, companion_mode,
+            timezone, is_published, registration_open
+       from events where slug = $1 and is_published`,
+    [slug],
+  );
 }
 
-/** Fechas futuras (o de hoy) con cupos restantes. */
+/** Fechas de hoy en adelante (en la zona del evento) con cupos restantes. */
 export async function getPublicDates(event: Pick<PublicEvent, "id" | "timezone">): Promise<PublicDateOption[]> {
-  const db = createAdminClient();
-  const { data } = await db
-    .from("event_dates")
-    .select("id, event_day, starts_at, ends_at, label, capacity, registered_count")
-    .eq("event_id", event.id)
-    .gte("event_day", todayIn(event.timezone))
-    .order("event_day")
-    .order("starts_at")
-    .returns<EventDate[]>();
-
-  return (data ?? []).map(({ registered_count, ...d }) => ({
-    ...d,
-    remaining: Math.max(0, d.capacity - registered_count),
-  }));
+  return query<PublicDateOption>(
+    `select id, event_day, starts_at::text, ends_at::text, label, capacity,
+            greatest(0, capacity - registered_count) as remaining
+       from event_dates
+      where event_id = $1 and event_day >= (now() at time zone $2)::date
+      order by event_day, starts_at`,
+    [event.id, event.timezone],
+  );
 }

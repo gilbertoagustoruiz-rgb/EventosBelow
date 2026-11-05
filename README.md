@@ -2,7 +2,9 @@
 
 Plataforma web **multi-tenant** para registrar y acreditar asistentes a eventos corporativos: cada cliente tiene sus eventos, cada evento tiene fechas con aforo, los asistentes se inscriben en un enlace público y reciben un ticket con QR, y el día del evento los anfitriones validan el ingreso desde el celular.
 
-**Stack:** Next.js 15 (App Router) · TypeScript · Tailwind CSS 4 · Supabase (PostgreSQL + Auth + Storage) · `html5-qrcode` · `qrcode.react` · ExcelJS · Zod · Lucide.
+**Stack:** Next.js 15 (App Router) · TypeScript · Tailwind CSS 4 · PostgreSQL (`pg`) · login propio (scrypt + cookie firmada con `jose`) · DigitalOcean Spaces para logos · `html5-qrcode` · `qrcode.react` · ExcelJS · Zod · Lucide.
+
+**Infraestructura:** DigitalOcean App Platform (app) + Managed Database PostgreSQL (datos) + Spaces (logos).
 
 ---
 
@@ -16,7 +18,7 @@ Plataforma web **multi-tenant** para registrar y acreditar asistentes a eventos 
 | Acreditación (check-in) | `/checkin/[eventId]` | Anfitriones |
 
 ### 1. Administración
-- **Clientes** (`/admin/clientes`): alta de empresas cliente (solo SuperAdmin) e invitación de usuarios por correo con rol *Administrador* o *Anfitrión*.
+- **Clientes** (`/admin/clientes`): alta de empresas cliente (solo SuperAdmin) y de usuarios con rol *Administrador* o *Anfitrión*. Al crear un usuario se muestra una **contraseña temporal** (una sola vez) que debe cambiar en su primer ingreso; también se puede generar una nueva si la olvida.
 - **Eventos**: nombre, descripción, lugar, enlace (`slug`), **logo** y **color primario** con vista previa en vivo; modo de acompañante *Sin / Opcional / Obligatorio*; publicación e inscripciones abiertas/cerradas.
 - **Fechas y aforo**: varias fechas por evento con horario, etiqueta y aforo; barra de ocupación; el aforo no puede bajar por debajo de los cupos ya ocupados.
 - **Registros**: búsqueda, filtro por fecha, paginación, cancelación (libera cupos).
@@ -42,43 +44,52 @@ Plataforma web **multi-tenant** para registrar y acreditar asistentes a eventos 
 ## Modelo de datos
 
 ```
-tenants ─┬─< tenant_members >── auth.users ──< platform_admins
-         └─< events ─< event_dates ─< registrations
-                  └──────────────────────┘ (FK compuesta: la fecha pertenece al evento)
+users ──< tenant_members >── tenants ──< events ──< event_dates ──< registrations
+                                              └─────────────────────────┘ (FK compuesta: la fecha pertenece al evento)
 ```
 
 | Tabla | Contenido clave |
 |---|---|
+| `users` | Correo, nombre, contraseña (scrypt), `is_platform_admin` (SuperAdmin), `must_change_password` |
 | `tenants` | Empresa cliente: nombre, slug, RUC, contacto |
-| `platform_admins` | SuperAdmins de Below Trade |
 | `tenant_members` | Usuario ↔ cliente con rol `CLIENT_ADMIN` o `HOST` |
 | `events` | Branding (`logo_url`, `primary_color`), `slug` único, `companion_mode`, zona horaria, publicado/abierto |
 | `event_dates` | Día, hora inicio/fin, `capacity`, `registered_count` (cupos ocupados; `CHECK registered_count <= capacity`) |
-| `registrations` | Titular, acompañante, `token` único (lo que va en el QR), `seats` (1 o 2), estado `REGISTRADO / CHECKED_IN / CANCELADO`, hora de ingreso de titular y de acompañante |
+| `registrations` | Titular, acompañante, `token` único (lo que va en el QR), `seats` (1 o 2), estado `REGISTRADO / CHECKED_IN / CANCELADO`, hora de ingreso de titular y de acompañante, quién lo acreditó |
 
-Funciones SQL (toda la lógica crítica vive en la base de datos):
+Funciones SQL (la lógica crítica vive en la base de datos):
 
-- `register_attendee(...)`: valida evento publicado, fecha vigente y reglas de acompañante; reserva cupos con un `UPDATE ... WHERE registered_count + seats <= capacity` e inserta el registro, todo en la misma transacción. Errores: `SOLD_OUT`, `DUPLICATE`, `EVENT_CLOSED`, `DATE_PAST`, `COMPANION_REQUIRED`…
-- `check_in(registration_id, event_date_id, target)`: `SELECT ... FOR UPDATE`, verifica tenant, fecha y estado; devuelve `OK / ALREADY / WRONG_DATE / CANCELLED / NOT_FOUND`.
+- `register_attendee(...)`: valida evento publicado, fecha vigente y reglas de acompañante; reserva cupos con un `UPDATE ... WHERE registered_count + seats <= capacity` e inserta el registro en la misma transacción. Errores: `SOLD_OUT`, `DUPLICATE`, `EVENT_CLOSED`, `DATE_PAST`, `COMPANION_REQUIRED`…
+- `check_in(registration_id, event_date_id, target, user_id)`: `SELECT ... FOR UPDATE`; devuelve `OK / ALREADY / WRONG_DATE / CANCELLED / NOT_FOUND`.
 - `cancel_registration(id)`: cancela y devuelve los cupos.
 - Vista `event_date_stats` para los contadores del check-in.
 
-**Seguridad:** RLS en todas las tablas. Cada usuario solo ve los datos de sus clientes; los anfitriones pueden leer registros, pero solo escriben a través de `check_in`. El portal público no usa la anon key contra las tablas: el servidor lee solo campos públicos de eventos publicados. Un documento solo puede tener un registro activo por fecha (índice único parcial).
+**Seguridad:**
+- Contraseñas con scrypt; sesión en cookie `httpOnly` firmada (7 días). Cambiar la contraseña cierra las demás sesiones.
+- Límite de intentos fallidos de login.
+- Cada consulta del panel y del check-in filtra por los clientes del usuario (`src/lib/auth.ts`); un usuario de otro cliente recibe 404.
+- Todas las consultas son parametrizadas.
+- Un documento solo puede tener un registro activo por fecha (índice único parcial).
 
 ---
 
 ## Estructura
 
 ```
-supabase/
-  migrations/0001_init.sql    Esquema, RLS, funciones, bucket de logos
-  seed.sql                    SuperAdmin + cliente y evento demo
+.do/app.yaml                  Especificación de DigitalOcean App Platform
+db/
+  migrations/0001_init.sql    Esquema y funciones
+  seed-demo.sql               Cliente y evento de ejemplo (opcional)
+scripts/
+  migrate.mjs                 Aplica migraciones pendientes (npm run db:migrate)
+  create-admin.mjs            Crea un SuperAdmin (npm run create-admin)
 src/
-  middleware.ts               Refresca sesión, protege /admin y /checkin
+  middleware.ts               Exige sesión en /admin, /checkin y /cuenta
   app/
-    login/                    Ingreso con correo y contraseña
+    login/                    Ingreso, cierre de sesión y cambio de contraseña
+    cuenta/                   Cambiar contraseña (obligatorio con contraseña temporal)
     admin/
-      actions.ts              Server Actions: clientes, miembros, eventos, logo, fechas, cancelación
+      actions.ts              Clientes, usuarios, eventos, logo, fechas, cancelación
       page.tsx                Lista de eventos
       clientes/page.tsx       Clientes y equipo
       eventos/nuevo/          Crear evento
@@ -86,12 +97,12 @@ src/
       eventos/[id]/exportar/  GET → .xlsx / .csv
     evento/[slug]/
       page.tsx                Portal público con branding
-      actions.ts              registerAttendee (Zod + RPC + correo)
+      actions.ts              registerAttendee (Zod + función SQL + correo)
       ticket/[token]/         Ticket con QR
     checkin/
       page.tsx                Elegir evento
       [eventId]/page.tsx      Consola de acreditación
-      actions.ts              lookup, búsqueda, check-in, métricas
+      actions.ts              Validación, búsqueda, check-in, métricas
     api/
       public/events/[slug]/availability/   Cupos en vivo
       qr/[token]/                          PNG del QR (para el correo)
@@ -100,8 +111,10 @@ src/
     checkin/                  checkin-console, qr-scanner, feedback
     admin/                    event-form, dates-manager, tenant-forms, ui
   lib/
-    supabase/{server,client,admin}.ts
-    auth.ts                   Viewer, roles, requireEvent()
+    db.ts                     Pool de PostgreSQL (SSL de DigitalOcean)
+    auth.ts                   Usuario actual, roles, requireEvent()
+    session.ts / password.ts  Cookie firmada y hash scrypt
+    storage.ts                Subida de logos a Spaces
     validation.ts             Esquemas Zod (documentos por tipo)
     email.ts                  Plantilla y envío (Resend / simulado)
     format.ts                 Fechas es-PE, color legible sobre la marca
@@ -109,46 +122,72 @@ src/
 
 ---
 
-## Puesta en marcha
+## Despliegue en DigitalOcean
 
-1. **Crea un proyecto en Supabase** y en *SQL Editor* ejecuta `supabase/migrations/0001_init.sql`.
-   (Con la CLI: `supabase link` y luego `supabase db push`.)
-2. **Crea tu usuario** en *Authentication → Users* (correo + contraseña).
-3. Edita el correo en `supabase/seed.sql` y ejecútalo: te convierte en SuperAdmin y crea un evento demo.
-4. Configura las variables:
-   ```bash
-   cp .env.example .env.local   # completa URL, anon key, service role key
-   npm install
-   npm run dev
-   ```
-5. Entra a `http://localhost:3000/login`. El portal demo queda en `/evento/convencion-anual-2026`.
+Usa tres servicios de DigitalOcean: **Managed Database** (datos), **Spaces** (logos) y **App Platform** (la app). El Droplet no hace falta.
 
-**Correo real:** crea una API key en [Resend](https://resend.com), verifica tu dominio y define `RESEND_API_KEY` y `EMAIL_FROM`.
+### 1. Base de datos
+1. **Databases →** tu cluster PostgreSQL → **Users & Databases → Add new database** → nombre `eventos_below`.
+   Así las tablas de esta app no se mezclan con las de otros proyectos del mismo cluster.
+2. Las tablas las crea la app sola en cada despliegue (job `migrate`); no hace falta ejecutar SQL a mano.
 
-### Despliegue en Render
+### 2. Spaces (logos)
+1. **Spaces Object Storage → Create a Space**: región (ej. `nyc3`) y nombre (ej. `eventos-below`).
+2. **API → Spaces Keys → Generate New Key**: guarda *Access Key* y *Secret*.
 
-1. En Render: **New → Blueprint** → conecta GitHub y elige este repo. Render lee `render.yaml`.
-2. Completa las variables que pide: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` y `SUPABASE_SERVICE_ROLE_KEY`. `NEXT_PUBLIC_APP_URL` es opcional: si queda vacío se usa la URL `.onrender.com`.
-3. Cuando termine el primer deploy, en Supabase → **Authentication → URL Configuration** pon la URL de Render como *Site URL*. Así los correos de invitación apuntan a tu app.
-4. Cada push a `main` vuelve a desplegar.
+### 3. App Platform
+1. **Apps → Create App → GitHub** → repo `EventosBelow`, rama `main`, *Autodeploy* activado.
+2. En **Settings → App Spec → Edit**, pega el contenido de `.do/app.yaml` y reemplaza los valores `CAMBIAR`:
+   - `cluster_name`: el nombre de tu cluster de base de datos.
+   - `SESSION_SECRET`: una cadena aleatoria larga (por ejemplo, el resultado de `openssl rand -base64 48`).
+   - `SPACES_BUCKET`, `SPACES_REGION`, `SPACES_KEY`, `SPACES_SECRET`.
 
-**Importante:**
-- El plan *free* se duerme tras 15 min sin tráfico (la primera visita tarda ~1 min en despertar). Para el día del evento cambia a *Starter*.
-- Las variables `NEXT_PUBLIC_*` se incrustan al compilar: si las cambias, haz **Manual Deploy → Clear build cache & deploy**.
-- La cámara del check-in requiere HTTPS, que Render ya incluye.
+   O, desde tu computadora con `doctl`: `doctl apps create --spec .do/app.yaml`.
+3. En la base de datos, pestaña **Settings → Trusted sources**: agrega la app `eventos-below` (si no se agregó sola).
+4. Guarda. App Platform compila, ejecuta las migraciones y publica la app en `https://eventos-below-xxxxx.ondigitalocean.app`.
+
+### 4. Crea tu usuario SuperAdmin
+En la app: **Console** (componente `web`) y ejecuta:
+```bash
+npm run create-admin -- tu-correo@belowtrade.pe "TuContraseñaSegura" "Tu Nombre"
+```
+Luego entra a `/login`. Desde **Clientes** creas las empresas cliente y sus usuarios.
+
+**Notas:**
+- Ninguna variable se fija al compilar: si cambias una clave, basta con reiniciar o redesplegar.
+- La cámara del check-in requiere HTTPS, que App Platform ya incluye.
+- Correo real: crea una API key en [Resend](https://resend.com), verifica tu dominio y define `RESEND_API_KEY` y `EMAIL_FROM`.
+
+### Desarrollo local
+```bash
+cp .env.example .env.local     # DATABASE_URL, SESSION_SECRET, APP_URL…
+npm install
+npm run db:migrate
+npm run create-admin -- yo@empresa.pe "ContraseñaLocal123"
+psql "$DATABASE_URL" -f db/seed-demo.sql   # opcional
+npm run dev
+```
 
 ---
 
 ## Verificación realizada
 
-- Migración aplicada en PostgreSQL 16. Probados: duplicado, aforo agotado, acompañante que ocupa 2 cupos, fecha incorrecta, doble ingreso, aislamiento entre clientes por RLS y bloqueo de `register_attendee` para `anon`.
-- **Concurrencia:** 80 registros simultáneos sobre un aforo de 50 → exactamente 50 aceptados.
+- Migración aplicada en PostgreSQL 16 con un usuario sin privilegios de superusuario (como `doadmin` en DigitalOcean). El migrador no repite migraciones ya aplicadas.
+- Funciones SQL: duplicado, aforo agotado, acompañante que ocupa 2 cupos, fecha incorrecta, doble ingreso. **Concurrencia:** 80 registros simultáneos sobre un aforo de 50 → exactamente 50 aceptados.
 - `tsc --noEmit` y `next build` sin errores.
-- Flujo completo en Chrome (vía PostgREST): registro con acompañante → ticket → correo simulado → QR PNG; check-in válido → ingreso → “Ya ingresó” → “Fecha incorrecta”; exportación Excel y CSV.
+- En Chrome:
+  - Registro con acompañante → ticket → correo simulado.
+  - Login incorrecto y correcto.
+  - Alta de anfitrión con contraseña temporal → cambio obligatorio → check-in (válido → ingreso → “Ya ingresó”).
+  - El anfitrión no puede entrar a `/admin`.
+  - Un usuario de otro cliente recibe 404 en el evento y en la exportación.
+  - Creación de evento, fechas y aforo; exportación Excel.
+- No probado aquí: la subida real a Spaces (requiere credenciales).
 
 ## Siguientes pasos sugeridos
 
 - Rate limiting / CAPTCHA (p. ej. Cloudflare Turnstile) en el formulario público.
-- Supabase Realtime para los cupos en lugar de polling.
+- Cupos en tiempo real con Server-Sent Events en lugar de polling.
+- Recuperación de contraseña por correo.
 - Modo offline del check-in (cache local de registros del día y sincronización).
 - Campos personalizados por evento y reenvío del ticket desde el panel.

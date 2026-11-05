@@ -2,20 +2,19 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { adminTenantIds, requireViewer } from "@/lib/auth";
-import { createClient } from "@/lib/supabase/server";
+import { query } from "@/lib/db";
 import { EventForm } from "@/components/admin/event-form";
 
 export const metadata = { title: "Nuevo evento" };
 
 export default async function NewEventPage() {
   const viewer = await requireViewer();
-  const supabase = await createClient();
+  const tenants = await query<{ id: string; name: string }>(
+    `select id, name from tenants where is_active and ($1::uuid[] is null or id = any($1)) order by name`,
+    [viewer.isPlatformAdmin ? null : adminTenantIds(viewer)],
+  );
 
-  let query = supabase.from("tenants").select("id, name").eq("is_active", true).order("name");
-  if (!viewer.isPlatformAdmin) query = query.in("id", adminTenantIds(viewer));
-  const { data: tenants } = await query;
-
-  if (!tenants?.length) redirect(viewer.isPlatformAdmin ? "/admin/clientes" : "/admin");
+  if (!tenants.length) redirect(viewer.isPlatformAdmin ? "/admin/clientes" : "/admin");
 
   return (
     <div className="mx-auto max-w-3xl">

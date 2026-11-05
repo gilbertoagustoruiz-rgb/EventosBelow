@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, Download, ExternalLink, FileSpreadsheet, ScanLine, Search } from "lucide-react";
 import { requireEvent } from "@/lib/auth";
+import { query, queryOne } from "@/lib/db";
 import { appUrl, brandStyle, formatDateTime, formatDayShort } from "@/lib/format";
 import { EventForm } from "@/components/admin/event-form";
 import { DatesManager } from "@/components/admin/dates-manager";
@@ -14,41 +15,46 @@ const PAGE_SIZE = 50;
 
 type Props = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ q?: string; fecha?: string; page?: string; creado?: string }>;
+  searchParams: Promise<{ q?: string; fecha?: string; page?: string; creado?: string; logo?: string }>;
 };
 
 export default async function EventAdminPage({ params, searchParams }: Props) {
   const [{ id }, sp] = await Promise.all([params, searchParams]);
-  const { supabase, event } = await requireEvent(id, "admin");
+  const { event } = await requireEvent(id, "admin");
   const page = Math.max(1, Number(sp.page) || 1);
+  const fecha = sp.fecha && /^[0-9a-f-]{36}$/i.test(sp.fecha) ? sp.fecha : null;
+  const q = sp.q?.trim() || null;
 
-  const { data: datesData } = await supabase
-    .from("event_dates")
-    .select("*")
-    .eq("event_id", id)
-    .order("event_day")
-    .order("starts_at")
-    .returns<EventDate[]>();
-  const dates = datesData ?? [];
+  const dates = await query<EventDate>(
+    "select * from event_dates where event_id = $1 order by event_day, starts_at",
+    [id],
+  );
 
-  let regQuery = supabase
-    .from("registrations")
-    .select("*", { count: "exact" })
-    .eq("event_id", id)
-    .order("created_at", { ascending: false })
-    .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1);
-  if (sp.fecha) regQuery = regQuery.eq("event_date_id", sp.fecha);
-  if (sp.q?.trim()) {
-    const t = sp.q.trim().replace(/[%_,()"\\]/g, " ");
-    regQuery = regQuery.or(`full_name.ilike."%${t}%",email.ilike."%${t}%",document_number.ilike."${t.toUpperCase()}%"`);
-  }
-  const { data: regs, count } = await regQuery.returns<Registration[]>();
+  // Filtros parametrizados; $3 = texto libre (nombre/correo), $4 = documento normalizado
+  const where = `event_id = $1
+    and ($2::uuid is null or event_date_id = $2)
+    and ($3::text is null
+         or full_name ilike '%' || $3 || '%'
+         or email ilike '%' || $3 || '%'
+         or ($4 <> '' and document_number like $4 || '%'))`;
+  const like = q?.replace(/[\\%_]/g, (c) => "\\" + c) ?? null;
+  const doc = q?.toUpperCase().replace(/[^A-Z0-9]/g, "") ?? "";
+  const filterParams = [id, fecha, like, doc];
 
-  const tenant = await supabase.from("tenants").select("id, name").eq("id", event.tenant_id).single();
+  const [regs, countRow, tenant] = await Promise.all([
+    query<Registration>(
+      `select * from registrations where ${where} order by created_at desc limit ${PAGE_SIZE} offset $5`,
+      [...filterParams, (page - 1) * PAGE_SIZE],
+    ),
+    queryOne<{ n: number }>(`select count(*) as n from registrations where ${where}`, filterParams),
+    queryOne<{ id: string; name: string }>("select id, name from tenants where id = $1", [event.tenant_id]),
+  ]);
+  const count = countRow?.n ?? 0;
+
   const publicUrl = appUrl(`/evento/${event.slug}`);
   const dateById = new Map(dates.map((d) => [d.id, d]));
-  const totalPages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
-  const exportQs = sp.fecha ? `&fecha=${sp.fecha}` : "";
+  const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE));
+  const exportQs = fecha ? `&fecha=${fecha}` : "";
 
   return (
     <div style={brandStyle(event.primary_color)} className="space-y-8">
@@ -58,7 +64,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
         </Link>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <p className="text-sm text-slate-500">{tenant.data?.name}</p>
+            <p className="text-sm text-slate-500">{tenant?.name}</p>
             <h1 className="text-2xl font-bold">{event.name}</h1>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -72,6 +78,11 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
             )}
           </div>
         </div>
+        {sp.logo === "error" && (
+          <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
+            El evento se creó, pero el logo no se pudo subir. Revisa la configuración de Spaces y vuelve a cargarlo abajo.
+          </p>
+        )}
         {sp.creado && (
           <p className="mt-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
             Evento creado. Agrega las fechas con su aforo y luego márcalo como publicado.
@@ -97,7 +108,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
       <section className="card p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">
-            Registros <span className="font-normal text-slate-400">({count ?? 0})</span>
+            Registros <span className="font-normal text-slate-400">({count})</span>
           </h2>
           <div className="flex gap-2">
             <a href={`/admin/eventos/${event.id}/exportar?formato=xlsx${exportQs}`} className="btn-ghost py-2">
@@ -137,7 +148,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {(regs ?? []).map((r) => {
+              {regs.map((r) => {
                 const d = dateById.get(r.event_date_id);
                 return (
                   <tr key={r.id} className={r.status === "CANCELADO" ? "text-slate-400" : ""}>
@@ -179,7 +190,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
                   </tr>
                 );
               })}
-              {(regs ?? []).length === 0 && (
+              {regs.length === 0 && (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-slate-500">No hay registros.</td>
                 </tr>
@@ -200,7 +211,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
       {/* Configuración -------------------------------------------------------------- */}
       <section className="card p-6 sm:p-8">
         <h2 className="mb-6 text-lg font-semibold">Configuración y branding</h2>
-        <EventForm event={event} tenants={tenant.data ? [tenant.data] : []} />
+        <EventForm event={event} tenants={tenant ? [tenant] : []} />
       </section>
     </div>
   );

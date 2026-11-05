@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { requireEvent } from "@/lib/auth";
+import { query, queryOne } from "@/lib/db";
 import type { Registration } from "@/lib/types";
 
 /** Estado visual de una validación */
@@ -96,23 +97,25 @@ const lookupSchema = z.object({
 /** Valida un QR escaneado o un registro elegido en la búsqueda. No modifica nada. */
 export async function lookupRegistration(input: z.input<typeof lookupSchema>): Promise<LookupResult> {
   const { eventId, eventDateId, token, registrationId } = lookupSchema.parse(input);
-  const { supabase } = await requireEvent(eventId, "host");
+  await requireEvent(eventId, "host");
 
-  let query = supabase.from("registrations").select(COLUMNS).eq("event_id", eventId);
-  if (registrationId) query = query.eq("id", registrationId);
-  else if (token && /^[a-f0-9]{32}$/i.test(token)) query = query.eq("token", token.toLowerCase());
-  else return { state: "NOT_FOUND", person: null };
+  let row: Row | null;
+  if (registrationId) {
+    row = await queryOne<Row>(`select ${COLUMNS} from registrations where event_id = $1 and id = $2`, [eventId, registrationId]);
+  } else if (token && /^[a-f0-9]{32}$/i.test(token)) {
+    row = await queryOne<Row>(`select ${COLUMNS} from registrations where event_id = $1 and token = $2`, [eventId, token.toLowerCase()]);
+  } else {
+    return { state: "NOT_FOUND", person: null };
+  }
+  if (!row) return { state: "NOT_FOUND", person: null };
 
-  const { data } = await query.maybeSingle<Row>();
-  if (!data) return { state: "NOT_FOUND", person: null };
-
-  const state = evaluate(data, eventDateId);
+  const state = evaluate(row, eventDateId);
   let registeredDay: string | undefined;
   if (state === "WRONG_DATE") {
-    const { data: d } = await supabase.from("event_dates").select("event_day").eq("id", data.event_date_id).single();
+    const d = await queryOne<{ event_day: string }>("select event_day from event_dates where id = $1", [row.event_date_id]);
     registeredDay = d?.event_day;
   }
-  return { state, person: toPerson(data), registeredDay };
+  return { state, person: toPerson(row), registeredDay };
 }
 
 const searchSchema = z.object({ eventId: z.string().uuid(), q: z.string().trim().min(2).max(80) });
@@ -122,30 +125,25 @@ export async function searchRegistrations(input: z.input<typeof searchSchema>): 
   const parsed = searchSchema.safeParse(input);
   if (!parsed.success) return [];
   const { eventId, q } = parsed.data;
-  const { supabase } = await requireEvent(eventId, "host");
+  await requireEvent(eventId, "host");
 
-  // Escapa comodines y separadores del filtro .or() de PostgREST
-  const term = q.replace(/[%_,()"\\]/g, " ").replace(/\s+/g, " ").trim();
+  // Escapa comodines de LIKE; los valores van parametrizados
+  const term = q.replace(/[\\%_]/g, (c) => "\\" + c).replace(/\s+/g, " ").trim();
   if (!term) return [];
-  const doc = term.toUpperCase().replace(/[\s.-]/g, "");
+  const doc = q.toUpperCase().replace(/[^A-Z0-9]/g, "");
 
-  const filters = [
-    `full_name.ilike."%${term}%"`,
-    `email.ilike."%${term}%"`,
-    `companion_full_name.ilike."%${term}%"`,
-  ];
-  if (doc) filters.push(`document_number.ilike.${doc}%`, `companion_document_number.ilike.${doc}%`);
-
-  const { data } = await supabase
-    .from("registrations")
-    .select(COLUMNS)
-    .eq("event_id", eventId)
-    .or(filters.join(","))
-    .order("full_name")
-    .limit(15)
-    .returns<Row[]>();
-
-  return (data ?? []).map(toPerson);
+  const rows = await query<Row>(
+    `select ${COLUMNS} from registrations
+      where event_id = $1
+        and (full_name ilike '%' || $2 || '%'
+          or email ilike '%' || $2 || '%'
+          or companion_full_name ilike '%' || $2 || '%'
+          or ($3 <> '' and (document_number like $3 || '%' or companion_document_number like $3 || '%')))
+      order by full_name
+      limit 15`,
+    [eventId, term, doc],
+  );
+  return rows.map(toPerson);
 }
 
 const checkInSchema = z.object({
@@ -158,17 +156,21 @@ const checkInSchema = z.object({
 /** Marca el ingreso. La función SQL bloquea la fila y evita doble ingreso aunque dos anfitriones escaneen a la vez. */
 export async function performCheckIn(input: z.input<typeof checkInSchema>): Promise<LookupResult> {
   const { eventId, eventDateId, registrationId, target } = checkInSchema.parse(input);
-  const { supabase } = await requireEvent(eventId, "host");
+  const { viewer } = await requireEvent(eventId, "host");
 
-  const { data, error } = await supabase.rpc("check_in", {
-    p_registration_id: registrationId,
-    p_event_date_id: eventDateId,
-    p_target: target,
-  });
-  if (error) throw new Error("No se pudo registrar el ingreso");
+  // El registro debe pertenecer al evento autorizado
+  const owns = await queryOne("select 1 from registrations where id = $1 and event_id = $2", [registrationId, eventId]);
+  if (!owns) return { state: "NOT_FOUND", person: null };
+
+  const res = await queryOne<{ r: { result: string } }>("select check_in($1, $2, $3, $4) as r", [
+    registrationId,
+    eventDateId,
+    target,
+    viewer.userId,
+  ]);
 
   const fresh = await lookupRegistration({ eventId, eventDateId, registrationId });
-  return { ...fresh, justCheckedIn: (data as { result: string }).result === "OK" };
+  return { ...fresh, justCheckedIn: res?.r.result === "OK" };
 }
 
 export interface DateStats {
@@ -179,17 +181,17 @@ export interface DateStats {
 }
 
 export async function getDateStats(eventId: string, eventDateId: string): Promise<DateStats | null> {
-  const { supabase } = await requireEvent(eventId, "host");
-  const { data } = await supabase
-    .from("event_date_stats")
-    .select("capacity, seats_taken, registrations, people_checked_in")
-    .eq("event_date_id", eventDateId)
-    .maybeSingle();
-  if (!data) return null;
+  await requireEvent(eventId, "host");
+  const row = await queryOne<{ capacity: number; seats_taken: number; registrations: number; people_checked_in: number }>(
+    `select capacity, seats_taken, registrations, people_checked_in
+       from event_date_stats where event_date_id = $1 and event_id = $2`,
+    [eventDateId, eventId],
+  );
+  if (!row) return null;
   return {
-    capacity: data.capacity,
-    seatsTaken: data.seats_taken,
-    registrations: Number(data.registrations),
-    peopleCheckedIn: Number(data.people_checked_in),
+    capacity: row.capacity,
+    seatsTaken: row.seats_taken,
+    registrations: Number(row.registrations),
+    peopleCheckedIn: Number(row.people_checked_in),
   };
 }
