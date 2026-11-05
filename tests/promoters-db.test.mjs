@@ -24,3 +24,17 @@ test("auditoría conserva identidad, registro y tipo de ingreso", async () => {
  const checks = await pool.query("select pg_get_constraintdef(oid) as definition from pg_constraint where conrelid='promoter_checkins'::regclass and contype='c'");
  assert.ok(checks.rows.some(x=>x.definition.includes("HOLDER")&&x.definition.includes("COMPANION")&&x.definition.includes("BOTH")));
 });
+
+test("directorio único y asignaciones múltiples conservan permisos de cliente",async()=>{
+ const r=await pool.query("select name from schema_migrations where name='0005_promoter_directory.sql'");
+ assert.equal(r.rows.length,1);
+ for(const t of ["promoters","event_promoters"]){
+  const x=await pool.query("select to_regclass($1) name",["public."+t]);assert.ok(x.rows[0].name);
+ }
+ const cols=await pool.query("select column_name from information_schema.columns where table_name='event_promoters'");
+ assert.ok(cols.rows.some(x=>x.column_name==="promoter_id"));
+ const unique=await pool.query("select indexdef from pg_indexes where tablename='event_promoters'");
+ assert.ok(unique.rows.some(x=>x.indexdef.includes("(event_id, promoter_id)")));
+ const directory=await pool.query("select indexdef from pg_indexes where tablename='promoters'");
+ assert.ok(directory.rows.some(x=>x.indexdef.includes("(tenant_id, document_number)")));
+});
