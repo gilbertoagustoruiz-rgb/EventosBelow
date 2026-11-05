@@ -12,7 +12,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       <div className="card w-full max-w-sm p-8">
         <p className="text-xs font-semibold uppercase tracking-widest text-indigo-600">Eventos Below</p>
         <h1 className="mt-1 text-2xl font-bold">Ingresar</h1>
-        <p className="mt-1 text-sm text-slate-600">Administradores y anfitriones de acreditación.</p>
+        <p className="mt-1 text-sm text-slate-600">Acceso exclusivo para SuperAdmin y coordinadores de BELOW GROUP.</p>
         <LoginForm next={safeNext} />
       </div>
     </main>
