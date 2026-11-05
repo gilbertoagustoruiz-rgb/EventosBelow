@@ -23,7 +23,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 {viewer.isPlatformAdmin ? "Clientes" : "Equipo"}
               </Link>
             ) : null}
-
+            <Link href="/admin/promotores" className="rounded-lg px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">Promotores</Link>
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="hidden text-slate-500 sm:inline">{viewer.email}</span>
