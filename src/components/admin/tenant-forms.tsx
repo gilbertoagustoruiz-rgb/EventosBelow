@@ -71,9 +71,8 @@ export function MemberForm({ tenantId }: { tenantId: string }) {
           <FieldError error={state.fieldErrors?.email} />
         </div>
         <input name="fullName" placeholder="Nombre (opcional)" className="input min-w-40 flex-1 py-2" aria-label="Nombre" />
-        <select name="role" className="input w-auto py-2" defaultValue="HOST" aria-label="Rol">
-          <option value="HOST">Anfitrión (check-in)</option>
-          <option value="CLIENT_ADMIN">Administrador</option>
+        <select name="role" className="input w-auto py-2" defaultValue="CLIENT_ADMIN" aria-label="Rol">
+          <option value="CLIENT_ADMIN">Coordinador Below Group</option>
         </select>
         <SubmitButton className="btn-ghost py-2">Agregar</SubmitButton>
       </form>
