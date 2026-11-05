@@ -6,7 +6,7 @@ import { z } from "zod";
 import { canAdminTenant, requireEvent, requireViewer } from "@/lib/auth";
 import { pgCode, pgMessage, query, queryOne } from "@/lib/db";
 import { hashPassword, temporaryPassword } from "@/lib/password";
-import { storageConfigured, uploadPublicFile } from "@/lib/storage";
+import { saveAssetInDb, storageConfigured, uploadPublicFile } from "@/lib/storage";
 import { flattenErrors, hexColorSchema, slugSchema } from "@/lib/validation";
 
 export interface FormState {
@@ -152,13 +152,15 @@ const LOGO_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "
 const LOGO_MAX = 2 * 1024 * 1024;
 
 async function uploadLogo(eventId: string, file: File): Promise<string | { error: string }> {
-  if (!storageConfigured()) return { error: "El almacenamiento de logos (Spaces) no está configurado." };
   const ext = LOGO_TYPES[file.type];
   if (!ext) return { error: "El logo debe ser PNG, JPG o WEBP." };
   if (file.size > LOGO_MAX) return { error: "El logo no debe superar 2 MB." };
   try {
     const body = new Uint8Array(await file.arrayBuffer());
-    return await uploadPublicFile(`event-logos/${eventId}/${Date.now()}.${ext}`, body, file.type);
+    // Con Spaces configurado se usa Spaces; si no, la propia base de datos
+    return storageConfigured()
+      ? await uploadPublicFile(`event-logos/${eventId}/${Date.now()}.${ext}`, body, file.type)
+      : await saveAssetInDb(body, file.type);
   } catch (err) {
     console.error("[uploadLogo]", err);
     return { error: "No se pudo subir el logo." };

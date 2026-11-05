@@ -1,10 +1,11 @@
 import pg from "pg";
+import { randomBytes, scrypt } from "node:crypto";
+import { promisify } from "node:util";
 
 /**
- * Configuración de conexión compartida por los scripts.
- * DigitalOcean entrega DATABASE_URL con ?sslmode=require y un certificado CA propio.
- *  - Con DATABASE_CA_CERT: verifica el certificado (recomendado).
- *  - Sin él: conexión cifrada sin verificar la CA.
+ * Configuración de conexión compartida por los scripts (misma lógica que src/lib/db.ts).
+ *  - ?sslmode=require (DigitalOcean) o host *.render.com (URL externa de Render) → SSL.
+ *  - DATABASE_CA_CERT presente → además verifica el certificado.
  */
 export function poolConfig() {
   const raw = process.env.DATABASE_URL;
@@ -12,16 +13,19 @@ export function poolConfig() {
   const url = new URL(raw);
   const sslmode = url.searchParams.get("sslmode");
   url.searchParams.delete("sslmode");
+  const wantsSsl = sslmode ? sslmode !== "disable" : /\.render\.com$/i.test(url.hostname);
   const ca = process.env.DATABASE_CA_CERT?.replace(/\\n/g, "\n");
-  const ssl =
-    sslmode && sslmode !== "disable"
-      ? ca
-        ? { ca, rejectUnauthorized: true }
-        : { rejectUnauthorized: false }
-      : undefined;
+  const ssl = wantsSsl ? (ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false }) : undefined;
   return { connectionString: url.toString(), ssl };
 }
 
 export function createPool() {
   return new pg.Pool({ ...poolConfig(), max: 2 });
+}
+
+/** Mismo formato que src/lib/password.ts */
+export async function hashPassword(password) {
+  const salt = randomBytes(16);
+  const hash = await promisify(scrypt)(password, salt, 64, { N: 16384, r: 8, p: 1 });
+  return `scrypt$${salt.toString("base64url")}$${hash.toString("base64url")}`;
 }

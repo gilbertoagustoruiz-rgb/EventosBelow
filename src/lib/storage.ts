@@ -1,5 +1,6 @@
 import "server-only";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { queryOne } from "@/lib/db";
 
 /**
  * Logos en DigitalOcean Spaces (API compatible con S3).
@@ -40,4 +41,16 @@ export async function uploadPublicFile(key: string, body: Uint8Array, contentTyp
   );
   const base = (process.env.SPACES_CDN_URL || `https://${bucket}.${region}.digitaloceanspaces.com`).replace(/\/$/, "");
   return `${base}/${key}`;
+}
+
+/**
+ * Alternativa sin almacenamiento externo (p. ej. Render): guarda la imagen en la tabla
+ * `assets` y la sirve en /api/assets/<id>. Devuelve una ruta relativa.
+ */
+export async function saveAssetInDb(body: Uint8Array, contentType: string) {
+  const row = await queryOne<{ id: string }>(
+    "insert into assets (content_type, data) values ($1, $2) returning id",
+    [contentType, Buffer.from(body)],
+  );
+  return `/api/assets/${row!.id}`;
 }

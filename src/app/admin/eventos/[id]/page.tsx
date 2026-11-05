@@ -80,7 +80,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
         </div>
         {sp.logo === "error" && (
           <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">
-            El evento se creó, pero el logo no se pudo subir. Revisa la configuración de Spaces y vuelve a cargarlo abajo.
+            El evento se creó, pero el logo no se pudo subir. Vuelve a cargarlo abajo, en Configuración y branding.
           </p>
         )}
         {sp.creado && (

@@ -2,9 +2,7 @@
 // Crea (o actualiza) un SuperAdmin de la plataforma.
 // Uso:  npm run create-admin -- correo@empresa.com "Contraseña segura" "Nombre Apellido"
 // En App Platform: pestaña Console del componente web, y ejecutar el mismo comando.
-import { randomBytes, scrypt } from "node:crypto";
-import { promisify } from "node:util";
-import { createPool } from "./db.mjs";
+import { createPool, hashPassword } from "./db.mjs";
 
 const [emailArg, password, fullName] = process.argv.slice(2);
 const email = emailArg?.trim().toLowerCase();
@@ -14,10 +12,7 @@ if (!email || !/^\S+@\S+\.\S+$/.test(email) || !password || password.length < 10
   process.exit(1);
 }
 
-// Mismo formato que src/lib/password.ts
-const salt = randomBytes(16);
-const hash = await promisify(scrypt)(password, salt, 64, { N: 16384, r: 8, p: 1 });
-const passwordHash = `scrypt$${salt.toString("base64url")}$${hash.toString("base64url")}`;
+const passwordHash = await hashPassword(password);
 
 const pool = createPool();
 try {

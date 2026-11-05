@@ -14,15 +14,12 @@ function poolConfig(): pg.PoolConfig {
   const url = new URL(raw);
   const sslmode = url.searchParams.get("sslmode");
   url.searchParams.delete("sslmode"); // si se deja, pg ignora la opción ssl de abajo
+  // DigitalOcean: ?sslmode=require. Render: la URL externa (*.render.com) exige SSL aunque no lo diga.
+  const wantsSsl = sslmode ? sslmode !== "disable" : /\.render\.com$/i.test(url.hostname);
   const ca = process.env.DATABASE_CA_CERT?.replace(/\\n/g, "\n");
   return {
     connectionString: url.toString(),
-    ssl:
-      sslmode && sslmode !== "disable"
-        ? ca
-          ? { ca, rejectUnauthorized: true }
-          : { rejectUnauthorized: false }
-        : undefined,
+    ssl: wantsSsl ? (ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false }) : undefined,
     max: Number(process.env.DATABASE_POOL_MAX ?? 10),
     idleTimeoutMillis: 30_000,
   };

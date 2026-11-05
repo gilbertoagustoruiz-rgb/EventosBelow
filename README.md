@@ -4,7 +4,7 @@ Plataforma web **multi-tenant** para registrar y acreditar asistentes a eventos 
 
 **Stack:** Next.js 15 (App Router) · TypeScript · Tailwind CSS 4 · PostgreSQL (`pg`) · login propio (scrypt + cookie firmada con `jose`) · DigitalOcean Spaces para logos · `html5-qrcode` · `qrcode.react` · ExcelJS · Zod · Lucide.
 
-**Infraestructura:** DigitalOcean App Platform (app) + Managed Database PostgreSQL (datos) + Spaces (logos).
+**Infraestructura:** cualquier hosting de Node + PostgreSQL. Probado para **Render** (web service + Render Postgres) y preparado para **DigitalOcean** (App Platform + Managed Database + Spaces).
 
 ---
 
@@ -122,6 +122,23 @@ src/
 
 ---
 
+## Despliegue en Render
+
+1. Web service Node conectado a este repo (rama `main`): build `npm ci && npm run build`, start `npm start`.
+   `npm start` aplica las migraciones pendientes antes de arrancar, así que no hace falta consola.
+2. Variables de entorno:
+
+| Variable | Valor |
+|---|---|
+| `DATABASE_URL` | En la base de Render → **Connect** → *Internal Database URL* si la app está en la misma región; si no, *External Database URL* (el SSL se activa solo con hosts `*.render.com`) |
+| `SESSION_SECRET` | Cadena aleatoria de 32+ caracteres |
+| `APP_URL` | `https://<tu-servicio>.onrender.com` |
+| `INITIAL_ADMIN_EMAIL` / `INITIAL_ADMIN_PASSWORD` | Crea el primer SuperAdmin si no existe ninguno; la contraseña es temporal y se pide cambiarla al entrar |
+
+3. Logos: sin Spaces configurado se guardan en la base de datos (tabla `assets`, servidos en `/api/assets/<id>`).
+
+**Plan gratuito:** la base de datos gratuita de Render **caduca a los 30 días** y el web service se duerme tras 15 min sin tráfico. Para un evento real, sube ambos a un plan pago antes de la fecha.
+
 ## Despliegue en DigitalOcean
 
 Usa tres servicios de DigitalOcean: **Managed Database** (datos), **Spaces** (logos) y **App Platform** (la app). El Droplet no hace falta.
@@ -131,7 +148,7 @@ Usa tres servicios de DigitalOcean: **Managed Database** (datos), **Spaces** (lo
    Así las tablas de esta app no se mezclan con las de otros proyectos del mismo cluster.
 2. Las tablas las crea la app sola en cada despliegue (job `migrate`); no hace falta ejecutar SQL a mano.
 
-### 2. Spaces (logos)
+### 2. Spaces (logos, opcional: sin Spaces se guardan en la base de datos)
 1. **Spaces Object Storage → Create a Space**: región (ej. `nyc3`) y nombre (ej. `eventos-below`).
 2. **API → Spaces Keys → Generate New Key**: guarda *Access Key* y *Secret*.
 
