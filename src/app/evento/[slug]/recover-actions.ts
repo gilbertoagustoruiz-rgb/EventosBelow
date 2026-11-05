@@ -3,22 +3,19 @@
 import { z } from "zod";
 import { query } from "@/lib/db";
 import { sendConfirmationEmail } from "@/lib/email";
+import { createRateLimiter } from "@/lib/rate-limit";
 
 export interface RecoveryState { message?: string }
 const inputSchema = z.object({ slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), email: z.string().trim().toLowerCase().email().max(254) });
 const GENERIC = "Si encontramos una inscripción con ese correo, recibirás el enlace de tu QR. Revisa también spam.";
-const attempts = new Map<string, number>();
-const WAIT_MS = 60_000;
+const attempts = createRateLimiter(1, 60_000);
 
 export async function resendTicket(_: RecoveryState, fd: FormData): Promise<RecoveryState> {
   const parsed = inputSchema.safeParse({ slug: fd.get("slug"), email: fd.get("email") });
   if (!parsed.success) return { message: "Ingresa un correo electrónico válido." };
   const { slug, email } = parsed.data;
   const key = slug + ":" + email;
-  const now = Date.now();
-  if ((attempts.get(key) ?? 0) > now - WAIT_MS) return { message: GENERIC };
-  if (attempts.size > 5000) attempts.clear();
-  attempts.set(key, now);
+  if (!attempts.consume(key)) return { message: GENERIC };
   const records = await query<{
     token: string; full_name: string; name: string; venue: string | null;
     primary_color: string; event_day: string; starts_at: string; ends_at: string;

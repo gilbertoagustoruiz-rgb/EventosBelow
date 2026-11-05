@@ -6,32 +6,28 @@ import { query, queryOne } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { SESSION_COOKIE, sessionCookieOptions, signSession } from "@/lib/session";
 import { getViewer } from "@/lib/auth";
+import { safeNext } from "@/lib/safe-next";
+import { createRateLimiter } from "@/lib/rate-limit";
 
 export interface LoginState {
   error?: string;
 }
 
-// Límite simple de intentos fallidos (por proceso): 8 cada 15 min por correo+IP
-const attempts = new Map<string, { count: number; until: number }>();
-const WINDOW_MS = 15 * 60 * 1000;
-const MAX_FAILS = 8;
+// Cuenta antes del trabajo asíncrono para limitar también los intentos simultáneos.
+const attempts = createRateLimiter(8, 15 * 60 * 1000);
 
 // Hash de relleno para que un correo inexistente tarde lo mismo que uno real
 const DUMMY_HASH = "scrypt$AAAAAAAAAAAAAAAAAAAAAA$" + "A".repeat(86);
 
-function safeNext(next: unknown) {
-  return typeof next === "string" && next.startsWith("/") && !next.startsWith("//") ? next : "/admin";
-}
-
 export async function login(_: LoginState, fd: FormData): Promise<LoginState> {
   const email = String(fd.get("email") ?? "").trim().toLowerCase();
   const password = String(fd.get("password") ?? "");
+  if (!email || email.length > 254 || !password || password.length > 1024) {
+    return { error: "Correo o contraseña incorrectos." };
+  }
   const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
   const key = `${email}|${ip}`;
-  const now = Date.now();
-
-  const a = attempts.get(key);
-  if (a && a.until > now && a.count >= MAX_FAILS) {
+  if (!attempts.consume(key)) {
     return { error: "Demasiados intentos. Espera unos minutos e inténtalo otra vez." };
   }
 
@@ -46,12 +42,10 @@ export async function login(_: LoginState, fd: FormData): Promise<LoginState> {
     [user.id],
   )));
   if (!user || !ok || !authorized) {
-    const prev = a && a.until > now ? a.count : 0;
-    attempts.set(key, { count: prev + 1, until: now + WINDOW_MS });
     return { error: "Correo o contraseña incorrectos." };
   }
 
-  attempts.delete(key);
+  attempts.reset(key);
   await query("update users set last_login_at = now() where id = $1", [user.id]);
   (await cookies()).set(SESSION_COOKIE, await signSession(user.id), sessionCookieOptions);
 

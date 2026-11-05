@@ -16,10 +16,10 @@ Plataforma web **multi-tenant** para registrar y acreditar asistentes a eventos 
 | Portal de registro | `/evento/[slug]` | Público |
 | Ticket con QR | `/evento/[slug]/ticket/[token]` | Asistente |
 | Acreditación (check-in) | `/acreditar/[enlace]` | Anfitriones, **sin login**, con el enlace secreto del evento |
-| Acreditación con cuenta | `/checkin/[eventId]` | Usuarios anfitriones con login |
+| Acreditación con cuenta | `/checkin/[eventId]` | SuperAdmin y administradores del cliente |
 
 ### 1. Administración
-- **Clientes** (`/admin/clientes`): alta de empresas cliente (solo SuperAdmin) y de usuarios con rol *Administrador* o *Anfitrión*. Al crear un usuario se muestra una **contraseña temporal** (una sola vez) que debe cambiar en su primer ingreso; también se puede generar una nueva si la olvida.
+- **Clientes** (`/admin/clientes`): alta de empresas cliente (solo SuperAdmin) y de usuarios con rol *Administrador*. Los anfitriones acreditan con el enlace secreto del evento; el rol histórico `HOST` no habilita el acceso con cuenta. Al crear un usuario se muestra una **contraseña temporal** (una sola vez) que debe cambiar en su primer ingreso; también se puede generar una nueva si la olvida.
 - **Eventos**: nombre, descripción, lugar, enlace (`slug`), **logo** y **color primario** con vista previa en vivo; modo de acompañante *Sin / Opcional / Obligatorio*; publicación e inscripciones abiertas/cerradas.
 - **Fechas y aforo**: varias fechas por evento con horario, etiqueta y aforo; barra de ocupación; el aforo no puede bajar por debajo de los cupos ya ocupados.
 - **Registros**: búsqueda, filtro por fecha, paginación, cancelación (libera cupos).
@@ -33,7 +33,7 @@ Plataforma web **multi-tenant** para registrar y acreditar asistentes a eventos 
 - **Correo de confirmación** con el QR embebido (vía Resend). Sin `RESEND_API_KEY` el envío se simula en la consola del servidor.
 
 ### 3. Acreditación
-- Cada evento tiene un **enlace secreto de acreditación** (`/acreditar/<código>`, 128 bits aleatorios) que se copia desde el panel. Quien lo abre acredita **sin usuario ni contraseña**. **Regenerar** el enlace invalida el anterior al instante. Los usuarios con rol anfitrión también pueden entrar por `/checkin` con su cuenta.
+- Cada evento tiene un **enlace secreto de acreditación** (`/acreditar/<código>`, 128 bits aleatorios) que se copia desde el panel. Quien lo abre acredita **sin usuario ni contraseña**. **Regenerar** el enlace invalida el anterior al instante. Los administradores también pueden entrar por `/checkin` con su cuenta.
 - Interfaz oscura, pensada para celular/tablet, con **selector de fecha activa** (por defecto: hoy) y contador *ingresados / inscritos*.
 - **Escáner QR** con la cámara trasera, o **búsqueda predictiva** por DNI, nombre o correo (del titular o del acompañante).
 - Resultado inmediato a pantalla completa, con sonido y vibración:
@@ -68,7 +68,7 @@ Funciones SQL (la lógica crítica vive en la base de datos):
 
 **Seguridad:**
 - Contraseñas con scrypt; sesión en cookie `httpOnly` firmada (7 días). Cambiar la contraseña cierra las demás sesiones.
-- Límite de intentos fallidos de login.
+- Límite de 8 intentos de login por correo + IP cada 15 minutos; el login correcto reinicia su contador. Recuperación de ticket: un intento por evento + correo cada minuto. Ambos controles tienen memoria acotada y son **por proceso**: no sustituyen un límite compartido entre instancias ni la protección del proxy frente a abuso distribuido.
 - Cada consulta del panel y del check-in filtra por los clientes del usuario (`src/lib/auth.ts`); un usuario de otro cliente recibe 404.
 - Todas las consultas son parametrizadas.
 - Un documento solo puede tener un registro activo por fecha (índice único parcial).
@@ -190,6 +190,10 @@ npm run dev
 ---
 
 ## Verificación realizada
+
+Comprobaciones reproducibles: `npm test` (redirecciones y límites), `npm run typecheck` y `npm run build`. CI ejecuta las tres en cada PR hacia `main` y cada push a `main`. El correo tiene un tiempo máximo de espera de 10 segundos por envío; su fallo no anula la inscripción.
+
+Las pruebas de base de datos y navegador de la siguiente lista corresponden a verificaciones previas; requieren una base de datos configurada para repetirse.
 
 - Migración aplicada en PostgreSQL 16 con un usuario sin privilegios de superusuario (como `doadmin` en DigitalOcean). El migrador no repite migraciones ya aplicadas.
 - Funciones SQL: duplicado, aforo agotado, acompañante que ocupa 2 cupos, fecha incorrecta, doble ingreso. **Concurrencia:** 80 registros simultáneos sobre un aforo de 50 → exactamente 50 aceptados.
