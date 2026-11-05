@@ -7,7 +7,7 @@ import { logout } from "@/app/login/actions";
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const viewer = await requireViewer();
   // Los anfitriones solo acreditan: van directo al check-in
-  if (!viewer.isPlatformAdmin && !viewer.memberships.some((m) => m.role === "CLIENT_ADMIN")) redirect("/checkin");
+  if (!viewer.isPlatformAdmin && !viewer.memberships.some((m) => m.role === "CLIENT_ADMIN")) redirect("/login");
 
   return (
     <div className="min-h-dvh">
@@ -23,7 +23,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
                 {viewer.isPlatformAdmin ? "Clientes" : "Equipo"}
               </Link>
             ) : null}
-            <Link href="/checkin" className="rounded-lg px-3 py-1.5 text-slate-600 hover:bg-slate-100 hover:text-slate-900">Check-in</Link>
+
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm">
             <span className="hidden text-slate-500 sm:inline">{viewer.email}</span>
