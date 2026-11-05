@@ -38,8 +38,9 @@ export default async function TenantsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold">{viewer.isPlatformAdmin ? "Clientes" : "Equipo"}</h1>
-        <p className="text-slate-600">Clientes y coordinadores de BELOW GROUP. La acreditación funciona sin login mediante enlaces.</p>
+        <h1 className="text-3xl font-bold tracking-tight">{viewer.isPlatformAdmin ? "Clientes y equipo" : "Mi equipo"}</h1>
+        <p className="mt-2 text-slate-600">Administra las empresas y las personas que organizan sus eventos.</p>
+        <p className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 p-4 text-sm text-indigo-800">Los coordinadores ingresan con su cuenta. Para acreditar asistentes, comparte el enlace de acreditación desde cada evento.</p>
       </div>
 
       {viewer.isPlatformAdmin && (
@@ -82,7 +83,7 @@ export default async function TenantsPage() {
                         <input type="hidden" name="tenantId" value={t.id} />
                         <input type="hidden" name="userId" value={m.user_id} />
                         <ConfirmButton message="¿Quitar el acceso de este usuario?" className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600">
-                          <Trash2 className="size-4" />
+                          <Trash2 className="size-4" /><span className="sr-only">Quitar acceso de {m.email}</span>
                         </ConfirmButton>
                       </form>
                     </>

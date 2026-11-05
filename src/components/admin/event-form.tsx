@@ -71,6 +71,7 @@ export function EventForm({ event, tenants }: Props) {
       {event && <input type="hidden" name="eventId" value={event.id} />}
 
       <section className="grid gap-5 sm:grid-cols-2">
+        <div className="sm:col-span-2"><h2 className="text-lg font-semibold">Información del evento</h2><p className="mt-1 text-sm text-slate-500">Estos datos aparecerán en el portal de tus invitados.</p></div>
         <div className="sm:col-span-2">
           <label className="label" htmlFor="tenantId">Cliente</label>
           <select id="tenantId" name="tenantId" defaultValue={event?.tenant_id ?? tenants[0]?.id} className="input" disabled={Boolean(event)}>
@@ -129,7 +130,7 @@ export function EventForm({ event, tenants }: Props) {
 
       {/* Branding ------------------------------------------------------------------ */}
       <section className="space-y-4">
-        <h3 className="font-semibold">Branding</h3>
+        <h3 className="text-lg font-semibold">Imagen y colores de tu evento</h3>
         <div className="grid gap-5 sm:grid-cols-2">
           <div>
             <label className="label" htmlFor="primaryColor">Color primario</label>
@@ -203,7 +204,8 @@ export function EventForm({ event, tenants }: Props) {
       </section>
 
       <section className="space-y-3">
-        <h3 className="font-semibold">Publicación</h3>
+        <h3 className="text-lg font-semibold">Visibilidad e inscripciones</h3>
+        <p className="text-sm text-slate-500">Puedes guardar un borrador y publicarlo cuando hayas agregado sus fechas.</p>
         <label className="flex items-center gap-3 text-sm">
           <input type="checkbox" name="isPublished" defaultChecked={event?.is_published ?? false} className="size-4" />
           Publicado (el enlace público es accesible)

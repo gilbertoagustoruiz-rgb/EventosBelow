@@ -16,9 +16,20 @@ body {
   color: #0f172a;
 }
 
+html { scroll-behavior: smooth; scroll-padding-top: 8rem; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button:not(:disabled), summary { cursor: pointer; }
+:where(a, button, summary, input, select, textarea):focus-visible { outline: 3px solid #6366f1; outline-offset: 3px; }
+::selection { background: #e0e7ff; color: #1e1b4b; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--brand); }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
 /* Componentes base reutilizables */
 @utility input {
-  @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[15px] text-slate-900
+  @apply w-full min-h-12 rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-base text-slate-900
     placeholder:text-slate-400 outline-none transition
     focus:border-brand focus:ring-4 focus:ring-brand/15
     disabled:bg-slate-100 disabled:text-slate-500
@@ -28,7 +39,7 @@ body {
   @apply mb-1.5 block text-sm font-medium text-slate-700;
 }
 @utility btn {
-  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold
+  @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
     transition disabled:cursor-not-allowed disabled:opacity-60;
 }
 @utility btn-brand {
@@ -41,7 +52,7 @@ body {
   @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
 }
 @utility card {
-  @apply rounded-2xl border border-slate-200 bg-white shadow-sm;
+  @apply rounded-2xl border border-slate-200/80 bg-white shadow-sm;
 }
 
 @media print {

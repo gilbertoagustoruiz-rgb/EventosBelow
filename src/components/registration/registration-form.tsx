@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CalendarDays, Check, Clock, Loader2, UserPlus, Users } from "lucide-react";
 import { registerAttendee } from "@/app/evento/[slug]/actions";
@@ -55,6 +55,8 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (formError) errorRef.current?.focus(); }, [formError]);
 
   const hasCompanion = companionMode === "REQUIRED" || (companionMode === "OPTIONAL" && form.wantsCompanion);
   const seatsNeeded = hasCompanion ? 2 : 1;
@@ -83,6 +85,7 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
   }, [refreshAvailability]);
 
   const selectedLeft = dateId ? (remaining[dateId] ?? 0) : null;
+  const selectedDate = dates.find((d) => d.id === dateId);
   const selectedInsufficient = selectedLeft !== null && selectedLeft < seatsNeeded;
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
@@ -96,6 +99,7 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
     name: key,
     value: form[key] as string,
     "aria-invalid": Boolean(errors[key]) || undefined,
+    "aria-describedby": errors[key] ? `${key}-error` : undefined,
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => set(key, e.target.value as never),
     className: "input",
   });
@@ -105,9 +109,11 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
     setFormError(null);
     if (!dateId) {
       setErrors((x) => ({ ...x, eventDateId: "Selecciona una fecha" }));
+      setFormError("Elige una fecha disponible antes de confirmar tu inscripción.");
       return;
     }
     startTransition(async () => {
+      try {
       const res = await registerAttendee(slug, {
         eventDateId: dateId,
         fullName: form.fullName,
@@ -133,6 +139,9 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
         refreshAvailability();
       }
       document.getElementById("form-top")?.scrollIntoView({ behavior: "smooth" });
+      } catch {
+        setFormError("No pudimos confirmar la inscripción. Conservamos tus datos en este formulario. Si se interrumpió la conexión, revisa tu correo o recupera tu QR antes de volver a intentarlo.");
+      }
     });
   }
 
@@ -145,8 +154,9 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
 
   return (
     <form onSubmit={onSubmit} noValidate className="space-y-8" id="form-top">
+      <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:p-5"><h2 className="text-xl font-bold tracking-tight">Reserva tu lugar</h2><p className="mt-1 text-sm leading-relaxed text-slate-600">Elige una fecha y completa tus datos tal como aparecen en tu documento. Los campos opcionales están indicados.</p><p className="mt-2 text-xs font-medium text-slate-500">Sin crear una cuenta · Ticket QR al finalizar</p></div>
       {formError && (
-        <div role="alert" className="flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+        <div ref={errorRef} tabIndex={-1} role="alert" className="flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
           <AlertCircle className="mt-0.5 size-5 shrink-0" />
           <p>{formError}</p>
         </div>
@@ -154,7 +164,7 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
 
       {/* 1. Fecha ------------------------------------------------------------------ */}
       <Section number={1} title="Elige tu fecha" icon={<CalendarDays className="size-4" />}>
-        <div role="radiogroup" aria-label="Fechas disponibles" className="grid gap-3 sm:grid-cols-2">
+        <div role="group" aria-label="Fechas disponibles, selecciona una" className="grid gap-3 sm:grid-cols-2">
           {dates.map((d) => {
             const left = remaining[d.id] ?? 0;
             const disabled = left < seatsNeeded;
@@ -164,11 +174,11 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
               <button
                 key={d.id}
                 type="button"
-                role="radio"
-                aria-checked={selected}
+                aria-pressed={selected}
                 disabled={disabled}
                 onClick={() => {
                   setDateId(d.id);
+                  setFormError(null);
                   setErrors(({ eventDateId: _, ...rest }) => rest);
                 }}
                 className={[
@@ -289,9 +299,10 @@ export function RegistrationForm({ slug, companionMode, dates }: Props) {
       )}
 
       <div className="space-y-3">
+        {selectedDate && <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700"><p className="font-semibold">Tu selección</p><p className="mt-1">{formatDay(selectedDate.event_day)} · {formatTime(selectedDate.starts_at)}</p><p className="mt-1 text-slate-500">{hasCompanion ? "2 personas: titular y acompañante" : "1 persona: titular"}</p></div>}
         <button type="submit" className="btn-brand w-full py-3.5 text-base" disabled={pending || selectedInsufficient}>
           {pending ? <Loader2 className="size-5 animate-spin" /> : <Check className="size-5" />}
-          {pending ? "Reservando tu lugar…" : "Confirmar registro"}
+          {pending ? "Reservando tu lugar…" : "Confirmar mi inscripción"}
         </button>
         <p className="text-center text-xs text-slate-500">
           Recibirás tu ticket con código QR en pantalla y por correo electrónico.
@@ -339,7 +350,7 @@ function Field({
     <div className={className}>
       <label className="label" htmlFor={children.props.id}>{label}</label>
       {children}
-      {error && <FieldError>{error}</FieldError>}
+      {error && <p id={`${children.props.id}-error`} className="mt-1.5 text-sm text-red-600">{error}</p>}
     </div>
   );
 }

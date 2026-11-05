@@ -4,40 +4,46 @@ import { useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Check, Copy, Loader2 } from "lucide-react";
 
-export function SubmitButton({ children, className = "btn-dark", disabled = false }: { children: React.ReactNode; className?: string; disabled?: boolean }) {
+export function SubmitButton({ children, className = "btn-dark", disabled = false, pendingLabel = "Guardando…" }: { children: React.ReactNode; className?: string; disabled?: boolean; pendingLabel?: string }) {
   const { pending } = useFormStatus();
   return (
     <button type="submit" disabled={pending || disabled} className={className}>
       {pending && <Loader2 className="size-4 animate-spin" />}
-      {children}
+      {pending ? pendingLabel : children}
     </button>
   );
 }
 
 export function FieldError({ error }: { error?: string }) {
-  return error ? <p className="mt-1.5 text-sm text-red-600">{error}</p> : null;
+  return error ? <p role="alert" className="mt-1.5 text-sm text-red-600">{error}</p> : null;
 }
 
 export function FormMessage({ state }: { state: { ok?: boolean; message?: string } }) {
   if (!state.message) return null;
-  return <p className={`text-sm ${state.ok ? "text-emerald-700" : "text-red-600"}`}>{state.message}</p>;
+  return <p role={state.ok ? "status" : "alert"} className={`rounded-xl px-3 py-2 text-sm ${state.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>{state.message}</p>;
 }
 
 export function CopyButton({ value, label = "Copiar" }: { value: string; label?: string }) {
   const [done, setDone] = useState(false);
+  const [error, setError] = useState(false);
   return (
+    <span className="inline-flex flex-wrap items-center gap-2">
     <button
       type="button"
       className="btn-ghost px-3 py-1.5"
       onClick={async () => {
-        await navigator.clipboard.writeText(value);
-        setDone(true);
-        setTimeout(() => setDone(false), 1500);
+        try {
+          await navigator.clipboard.writeText(value);
+          setError(false); setDone(true);
+          setTimeout(() => setDone(false), 1500);
+        } catch { setError(true); }
       }}
     >
       {done ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
       {done ? "Copiado" : label}
     </button>
+    <span role="status" className={error ? "max-w-48 text-xs text-amber-700" : "sr-only"}>{error ? "No se pudo copiar. Selecciona el enlace y cópialo manualmente." : done ? "Enlace copiado" : ""}</span>
+    </span>
   );
 }
 
