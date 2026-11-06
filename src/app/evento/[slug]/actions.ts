@@ -14,7 +14,8 @@ import type { DocumentType } from "@/lib/types";
  *   1) lookupInvitee: el asistente escribe su DNI o código de vendedor; si está en la base
  *      se muestran sus datos (enmascarados) y elige el día.
  *   2) confirmRegistration: confirma el día (y acompañantes si el evento lo permite).
- * Si ya estaba inscrito no se muestra el ticket: se reenvía al correo registrado.
+ * Solo se pide DNI o código: el ticket se muestra en pantalla (y por correo si la base lo trae).
+ * Si ya estaba inscrito, se le vuelve a mostrar su ticket.
  * ---------------------------------------------------------------------------------- */
 
 export interface InviteePreview {
@@ -24,20 +25,17 @@ export interface InviteePreview {
   maskedDocument: string;
   employeeCode: string | null;
   company: string | null;
-  maskedEmail: string | null;
-  needsEmail: boolean;
-  needsPhone: boolean;
   /** Fecha asignada por el organizador (si la base la trae) */
   assignedDateId: string | null;
 }
 
 export type LookupInviteeResult =
   | { state: "FOUND"; invitee: InviteePreview }
-  | { state: "REGISTERED"; maskedEmail: string; day: string }
+  | { state: "REGISTERED"; token: string }
   | { state: "NOT_FOUND" | "LIMITED" | "INVALID" | "CLOSED"; message: string };
 
 export type ConfirmResult =
-  | { ok: true; token: string }
+  | { ok: true; token: string; already?: boolean }
   | { ok: false; code: string; message: string; fieldErrors?: Record<string, string> };
 
 const lookups = createRateLimiter(20, 10 * 60_000);
@@ -45,7 +43,7 @@ const confirms = createRateLimiter(10, 10 * 60_000);
 
 const DB_ERRORS: Record<string, string> = {
   SOLD_OUT: "Se agotaron los cupos para este día mientras confirmabas. Elige otro día.",
-  DUPLICATE: "Ya tienes una inscripción para este evento. Te reenviamos el ticket a tu correo.",
+  DUPLICATE: "Ya confirmaste tu asistencia a este evento.",
   EVENT_CLOSED: "Las inscripciones para este evento están cerradas.",
   DATE_PAST: "Este día ya pasó.",
   DATE_NOT_FOUND: "El día seleccionado ya no está disponible.",
@@ -68,7 +66,6 @@ function normalizeCode(raw: string) {
   return raw.replace(/[\s.-]/g, "").toUpperCase();
 }
 
-const maskEmail = (e: string) => e.replace(/^(.)[^@]*/, "$1***");
 const maskDoc = (d: string) => (d.length <= 4 ? "****" : "*".repeat(d.length - 4) + d.slice(-4));
 
 interface InviteeRow {
@@ -95,33 +92,9 @@ async function findInvitee(eventId: string, code: string) {
   );
 }
 
-/** Reenvía el ticket vigente al correo registrado (nunca lo muestra en pantalla). */
-async function resendExisting(registrationId: string, slug: string) {
-  const r = await queryOne<{
-    token: string; email: string; full_name: string; name: string; venue: string | null;
-    primary_color: string; event_day: string; starts_at: string; ends_at: string; companion_names: string[];
-  }>(
-    `select r.token, r.email, r.full_name, e.name, e.venue, e.primary_color,
-            d.event_day::text, d.starts_at::text, d.ends_at::text,
-            coalesce((select array_agg(c.full_name order by c.position) from companions c where c.registration_id = r.id), '{}') as companion_names
-       from registrations r
-       join events e on e.id = r.event_id
-       join event_dates d on d.id = r.event_date_id
-      where r.id = $1`,
-    [registrationId],
-  );
-  if (!r) return null;
-  await sendConfirmationEmail({
-    to: r.email, fullName: r.full_name, eventName: r.name, eventSlug: slug, venue: r.venue,
-    brandColor: r.primary_color, day: r.event_day, startsAt: r.starts_at, endsAt: r.ends_at,
-    token: r.token, companionNames: r.companion_names,
-  });
-  return { maskedEmail: maskEmail(r.email), day: r.event_day };
-}
-
 async function activeRegistration(eventId: string, inv: InviteeRow) {
-  return queryOne<{ id: string }>(
-    `select id from registrations
+  return queryOne<{ id: string; token: string }>(
+    `select id, token from registrations
       where event_id = $1 and status <> 'CANCELADO'
         and (invitee_id = $2 or (document_type = $3 and document_number = $4))
       order by created_at desc limit 1`,
@@ -133,7 +106,7 @@ export async function lookupInvitee(slug: string, value: string): Promise<Lookup
   if (!slugSchema.safeParse(slug).success) return { state: "INVALID", message: "Evento no válido." };
   const code = normalizeCode(String(value ?? ""));
   if (code.length < 3 || code.length > 30 || !/^[A-Z0-9]+$/.test(code)) {
-    return { state: "INVALID", message: "Ingresa tu número de documento o tu código de vendedor." };
+    return { state: "INVALID", message: "Ingresa tu número de documento (DNI) o tu código." };
   }
   if (!lookups.consume(await clientIp())) {
     return { state: "LIMITED", message: "Demasiados intentos. Espera unos minutos y vuelve a intentarlo." };
@@ -154,11 +127,9 @@ export async function lookupInvitee(slug: string, value: string): Promise<Lookup
     };
   }
 
+  // Ya confirmó: se le vuelve a mostrar su ticket
   const existing = await activeRegistration(event.id, inv);
-  if (existing) {
-    const sent = await resendExisting(existing.id, slug);
-    if (sent) return { state: "REGISTERED", ...sent };
-  }
+  if (existing) return { state: "REGISTERED", token: existing.token };
 
   return {
     state: "FOUND",
@@ -169,9 +140,6 @@ export async function lookupInvitee(slug: string, value: string): Promise<Lookup
       maskedDocument: maskDoc(inv.document_number),
       employeeCode: inv.employee_code,
       company: inv.company,
-      maskedEmail: inv.email ? maskEmail(inv.email) : null,
-      needsEmail: !inv.email,
-      needsPhone: !inv.phone,
       assignedDateId: inv.event_date_id,
     },
   };
@@ -206,15 +174,9 @@ export async function confirmRegistration(slug: string, input: ConfirmationInput
   );
   if (!inv) return { ok: false, code: "NOT_INVITED", message: DB_ERRORS.NOT_INVITED };
 
-  // El correo y el celular de la base no se pueden cambiar desde el formulario público
-  const email = inv.email ?? (d.email || null);
-  const phone = inv.phone ?? (d.phone || null);
-  const fieldErrors: Record<string, string> = {};
-  if (!email) fieldErrors.email = "Ingresa tu correo para recibir el ticket";
-  if (!phone) fieldErrors.phone = "Ingresa tu celular";
-  if (Object.keys(fieldErrors).length) {
-    return { ok: false, code: "VALIDATION", message: "Revisa los campos marcados.", fieldErrors };
-  }
+  // Correo y celular solo si vienen en la base (el formulario público no los pide)
+  const email = inv.email;
+  const phone = inv.phone;
   const holderDoc = inv.document_number.toUpperCase();
   const clash = d.companions.findIndex((c) => c.documentNumber.toUpperCase() === holderDoc);
   if (clash >= 0) {
@@ -242,14 +204,14 @@ export async function confirmRegistration(slug: string, input: ConfirmationInput
     const code = Object.keys(DB_ERRORS).find((k) => msg.includes(k)) ?? "UNKNOWN";
     if (code === "DUPLICATE") {
       const existing = await activeRegistration(ctx.event_id, inv);
-      if (existing) await resendExisting(existing.id, slug);
+      if (existing) return { ok: true, token: existing.token, already: true };
     }
     if (code === "UNKNOWN") console.error("[register_attendee]", err);
     return { ok: false, code, message: DB_ERRORS[code] ?? "No pudimos completar tu inscripción. Inténtalo nuevamente." };
   }
 
-  await sendConfirmationEmail({
-    to: email!, fullName: inv.full_name, eventName: ctx.name, eventSlug: slug, venue: ctx.venue,
+  if (email) await sendConfirmationEmail({
+    to: email, fullName: inv.full_name, eventName: ctx.name, eventSlug: slug, venue: ctx.venue,
     brandColor: ctx.primary_color, day: ctx.event_day, startsAt: ctx.starts_at, endsAt: ctx.ends_at,
     token, companionNames: d.companions.map((c) => c.fullName),
   });

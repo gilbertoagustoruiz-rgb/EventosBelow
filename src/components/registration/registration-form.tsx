@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  AlertCircle, ArrowLeft, BadgeCheck, CalendarDays, Check, Clock, Loader2, Mail, Minus, Plus, Search, UserPlus,
+  AlertCircle, ArrowLeft, BadgeCheck, CalendarDays, Check, Clock, Loader2, Minus, Plus, Search, UserPlus,
 } from "lucide-react";
 import {
   confirmRegistration, lookupInvitee, type InviteePreview,
@@ -32,14 +32,11 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
   const router = useRouter();
   const [code, setCode] = useState("");
   const [invitee, setInvitee] = useState<InviteePreview | null>(null);
-  const [already, setAlready] = useState<{ maskedEmail: string; day: string } | null>(null);
   const [dateId, setDateId] = useState<string | null>(dates.length === 1 && dates[0].remaining > 0 ? dates[0].id : null);
   const [remaining, setRemaining] = useState<Record<string, number>>(() =>
     Object.fromEntries(dates.map((d) => [d.id, d.remaining])),
   );
   const [open, setOpen] = useState(true);
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
   const minCompanions = companionMode === "REQUIRED" ? 1 : 0;
   const allowCompanions = companionMode !== "NONE" && maxCompanions > 0;
   const [companions, setCompanions] = useState<CompanionForm[]>(() =>
@@ -88,7 +85,6 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
   function onLookup(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
-    setAlready(null);
     startTransition(async () => {
       try {
         const res = await lookupInvitee(slug, code);
@@ -97,7 +93,7 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
           if (res.invitee.assignedDateId) setDateId(res.invitee.assignedDateId);
           setErrors({});
         } else if (res.state === "REGISTERED") {
-          setAlready({ maskedEmail: res.maskedEmail, day: res.day });
+          router.push(`/evento/${slug}/ticket/${res.token}?ya=1`);
         } else {
           setFormError(res.message);
         }
@@ -121,12 +117,12 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
         const res = await confirmRegistration(slug, {
           inviteeId: invitee.id,
           eventDateId: dateId,
-          email: invitee.needsEmail ? email : "",
-          phone: invitee.needsPhone ? phone : "",
+          email: "",
+          phone: "",
           companions,
         });
         if (res.ok) {
-          router.push(`/evento/${slug}/ticket/${res.token}?nuevo=1`);
+          router.push(`/evento/${slug}/ticket/${res.token}?${res.already ? "ya" : "nuevo"}=1`);
           return;
         }
         setErrors(res.fieldErrors ?? {});
@@ -159,30 +155,22 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
         <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4 sm:p-5">
           <h2 className="text-xl font-bold tracking-tight">Confirma tu asistencia</h2>
           <p className="mt-1 text-sm leading-relaxed text-slate-600">
-            Ingresa tu número de documento o tu código de vendedor. Tus datos ya están registrados por el organizador.
+            Ingresa tu número de documento (DNI) o tu código. Tus datos ya están registrados por el organizador.
           </p>
         </div>
         {errorBox}
-        {already && (
-          <div role="status" className="flex gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-            <Mail className="mt-0.5 size-5 shrink-0" />
-            <div>
-              <p className="font-semibold">Ya estás inscrito para el {formatDay(already.day)}.</p>
-              <p className="mt-1">Te reenviamos tu ticket con el código QR a {already.maskedEmail}. Revisa también la carpeta de spam.</p>
-            </div>
-          </div>
-        )}
         <div>
-          <label htmlFor="code" className="label">DNI o código de vendedor</label>
+          <label htmlFor="code" className="label">DNI o código</label>
           <input
             id="code"
             name="code"
             className="input text-lg tracking-wide"
             value={code}
-            onChange={(e) => { setCode(e.target.value); setFormError(null); setAlready(null); }}
+            onChange={(e) => { setCode(e.target.value); setFormError(null); }}
             autoComplete="off"
             autoFocus
-            placeholder="Ej: 45678912 o V-1023"
+            placeholder="Ej: 45678912"
+            inputMode="text"
             maxLength={30}
           />
         </div>
@@ -206,7 +194,6 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
             {invitee.employeeCode && <> · <span className="whitespace-nowrap">Código {invitee.employeeCode}</span></>}
             {invitee.company && ` · ${invitee.company}`}
           </p>
-          {invitee.maskedEmail && <p className="mt-1 text-sm text-slate-500">Enviaremos tu ticket a {invitee.maskedEmail}</p>}
         </div>
         <button
           type="button"
@@ -223,12 +210,12 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
         {invitee.assignedDateId && (
           <p className="-mt-2 mb-3 text-sm text-slate-600">
             {dates.some((d) => d.id === invitee.assignedDateId)
-              ? "El organizador te asignó esta fecha. Confírmala para recibir tu ticket."
+              ? "Esta es la fecha que te asignaron. Confírmala para recibir tu ticket."
               : "Tu fecha asignada ya no está disponible. Comunícate con el organizador."}
           </p>
         )}
         <div role="group" aria-label="Días disponibles, selecciona uno" className="grid gap-3 sm:grid-cols-2">
-          {dates.map((d) => {
+          {dates.filter((d) => !invitee.assignedDateId || d.id === invitee.assignedDateId).map((d) => {
             const left = remaining[d.id] ?? 0;
             const notAssigned = Boolean(invitee.assignedDateId) && d.id !== invitee.assignedDateId;
             const disabled = notAssigned || left < seatsNeeded;
@@ -275,28 +262,9 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
         {selectedInsufficient && <FieldError>El día elegido ya no tiene cupos suficientes. Elige otro.</FieldError>}
       </Section>
 
-      {(invitee.needsEmail || invitee.needsPhone) && (
-        <Section number={2} title="Datos de contacto" icon={<Mail className="size-4" />}>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {invitee.needsEmail && (
-              <Field id="email" label="Correo electrónico" error={errors.email}>
-                <input id="email" type="email" inputMode="email" autoComplete="email" className="input"
-                  value={email} onChange={(e) => { setEmail(e.target.value); clearError("email"); }} placeholder="nombre@empresa.com" />
-              </Field>
-            )}
-            {invitee.needsPhone && (
-              <Field id="phone" label="Celular" error={errors.phone}>
-                <input id="phone" type="tel" inputMode="tel" autoComplete="tel" className="input"
-                  value={phone} onChange={(e) => { setPhone(e.target.value); clearError("phone"); }} placeholder="+51 999 999 999" />
-              </Field>
-            )}
-          </div>
-        </Section>
-      )}
-
       {allowCompanions && (
         <Section
-          number={invitee.needsEmail || invitee.needsPhone ? 3 : 2}
+          number={2}
           title={companionMode === "REQUIRED" ? "Tus acompañantes" : "¿Vienes con acompañantes?"}
           icon={<UserPlus className="size-4" />}
         >
@@ -369,7 +337,7 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
           {pending ? <Loader2 className="size-5 animate-spin" /> : <Check className="size-5" />}
           {pending ? "Confirmando…" : "Confirmar mi asistencia"}
         </button>
-        <p className="text-center text-xs text-slate-500">Recibirás tu ticket con código QR en pantalla y por correo electrónico.</p>
+        <p className="text-center text-xs text-slate-500">Al confirmar verás tu ticket con código QR. Guárdalo o toma una captura.</p>
       </div>
     </form>
   );

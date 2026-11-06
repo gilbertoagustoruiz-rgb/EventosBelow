@@ -28,7 +28,7 @@ export interface CheckinPerson {
   documentType: string;
   documentNumber: string;
   employeeCode: string | null;
-  email: string;
+  email: string | null;
   company: string | null;
   jobTitle: string | null;
   holderCheckedInAt: string | null;

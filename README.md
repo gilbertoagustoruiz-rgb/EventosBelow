@@ -58,11 +58,12 @@ Jerarquía: **Cliente → Proyecto → Eventos**. Cada evento tiene fechas con a
 - Filtro por fecha y actualización automática cada 30 s.
 
 ### 3. Confirmación del invitado
-- Solo pueden inscribirse las personas de la **base precargada**: escriben su **DNI o código de vendedor** y se muestran sus datos (documento y correo enmascarados). El correo de la base no se puede cambiar; si falta, se pide.
+- **Marca blanca**: el invitado solo ve el logo, el color y el nombre del evento. La página principal lleva directo a la confirmación cuando hay un solo evento abierto.
+- Solo pueden confirmar las personas de la **base precargada**: escriben su **DNI o código** y se muestran sus datos (documento enmascarado). No se piden correo ni celular.
 - Elige el **día**, con cupos actualizados cada 15 s, y registra sus acompañantes si el evento lo permite.
-- Si ya estaba inscrito, **no se muestra el ticket**: se reenvía al correo registrado.
+- Si ya había confirmado, se le vuelve a mostrar su ticket.
 - La reserva es **atómica en la base de datos**: aunque varios envíen a la vez por los últimos cupos, nunca se supera el aforo.
-- **Ticket con QR** descargable e imprimible y **correo de confirmación** (Resend; sin `RESEND_API_KEY` se simula en consola).
+- **Ticket con QR** en pantalla, descargable e imprimible. Si la base trae correo, también se envía por correo con el nombre del evento como remitente (Resend; sin `RESEND_API_KEY` se simula en consola).
 
 ### 4. Acreditación
 - Modo principal **DNI o código**: funciona con el documento del titular, de cualquier acompañante o con el código de vendedor. También **escáner QR** y búsqueda por nombre.
@@ -116,7 +117,7 @@ Funciones SQL (la lógica crítica vive en la base de datos):
 ```
 .do/app.yaml                  Especificación de DigitalOcean App Platform
 db/
-  migrations/                 0001…0010 (esquema y funciones)
+  migrations/                 0001…0011 (esquema y funciones)
   seed-demo.sql               Cliente y evento de ejemplo (opcional)
 scripts/
   migrate.mjs                 Aplica migraciones pendientes (npm run db:migrate)

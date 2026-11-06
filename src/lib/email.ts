@@ -48,6 +48,12 @@ function render(m: ConfirmationEmail) {
   return { html, text };
 }
 
+/** Dirección de EMAIL_FROM ("Nombre <correo>" o solo el correo). */
+function fromAddress() {
+  const raw = process.env.EMAIL_FROM ?? "onboarding@resend.dev";
+  return raw.match(/<([^>]+)>/)?.[1] ?? raw.trim();
+}
+
 /**
  * Envía el correo de confirmación. Con RESEND_API_KEY usa Resend;
  * sin ella, simula el envío en consola (útil en desarrollo).
@@ -69,7 +75,8 @@ export async function sendConfirmationEmail(m: ConfirmationEmail): Promise<{ sen
       signal: AbortSignal.timeout(10_000),
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: process.env.EMAIL_FROM ?? "Eventos Below <onboarding@resend.dev>",
+        // Marca blanca: el remitente se muestra con el nombre del evento
+        from: `${m.eventName.replace(/[<>"]/g, "")} <${fromAddress()}>`,
         to: [m.to],
         subject,
         html,

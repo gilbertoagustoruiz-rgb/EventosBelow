@@ -13,14 +13,14 @@ export function EventHeader({
 }) {
   return (
     <header className="bg-brand text-brand-fg">
-      <div className="mx-auto max-w-3xl px-5 pb-20 pt-10 sm:px-8">
+      <div className="mx-auto max-w-3xl px-5 pb-12 pt-6 sm:px-8 sm:pt-8">
         {logoUrl && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={logoUrl} alt="" className="mb-6 h-12 w-auto max-w-[200px] rounded-md bg-white/95 object-contain p-1.5" />
+          <img src={logoUrl} alt="" className="mb-4 h-10 w-auto max-w-[180px] rounded-md bg-white/95 object-contain p-1.5" />
         )}
-        <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{name}</h1>
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{name}</h1>
         {venue && (
-          <p className="mt-2 flex items-center gap-1.5 opacity-90">
+          <p className="mt-1.5 flex items-center gap-1.5 text-sm opacity-90">
             <MapPin className="size-4" />
             {venue}
           </p>

@@ -51,8 +51,8 @@ export interface Registration {
   event_date_id: string;
   token: string;
   full_name: string;
-  email: string;
-  phone: string;
+  email: string | null;
+  phone: string | null;
   document_type: DocumentType;
   document_number: string;
   company: string | null;

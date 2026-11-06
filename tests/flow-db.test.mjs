@@ -257,3 +257,21 @@ test("fecha asignada en la base: el invitado solo confirma esa fecha", async () 
     await cleanup(s);
   }
 });
+
+test("confirmación sin correo ni celular (solo DNI o código)", async () => {
+  const s = await seed();
+  try {
+    const inv = await invitee(s, { email: null });
+    const r = (
+      await pool.query(
+        "select * from register_attendee($1,$2,$3,null,null,'DNI',$4,null,null,null,'[]'::jsonb,false)",
+        [s.day, inv.id, "Nombre", inv.doc],
+      )
+    ).rows[0];
+    const row = (await pool.query("select email, phone from registrations where id = $1", [r.out_registration_id])).rows[0];
+    assert.equal(row.email, null);
+    assert.equal(row.phone, null);
+  } finally {
+    await cleanup(s);
+  }
+});

@@ -220,7 +220,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
                   <tr key={r.id} className={r.status === "CANCELADO" ? "text-slate-400" : ""}>
                     <td className="py-3 pr-4">
                       <p className="font-medium">{r.full_name}</p>
-                      <p className="text-slate-500">{r.email} · {r.phone}</p>
+                      {(r.email || r.phone) && <p className="text-slate-500">{[r.email, r.phone].filter(Boolean).join(" · ")}</p>}
                     </td>
                     <td className="py-3 pr-4 whitespace-nowrap">
                       {r.document_type} {r.document_number}
