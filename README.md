@@ -67,6 +67,7 @@ Jerarquía: **Cliente → Proyecto → Eventos**. Cada evento tiene fechas con a
 - Solo pueden confirmar las personas de la **base precargada**: escriben su **DNI o código** y se muestran sus datos (documento enmascarado). No se piden correo ni celular.
 - Elige el **día**, con cupos actualizados cada 15 s, y registra sus acompañantes si el evento lo permite.
 - Si ya había confirmado, se le vuelve a mostrar su ticket.
+- **Regularizar la confirmación**: desde su ticket el invitado puede agregar acompañantes (hasta el máximo del evento y si hay cupo) o quitar uno que aún no ingresó; el QR no cambia.
 - La reserva es **atómica en la base de datos**: aunque varios envíen a la vez por los últimos cupos, nunca se supera el aforo.
 - **Ticket con QR** en pantalla, descargable e imprimible. Si la base trae correo, también se envía por correo con el nombre del evento como remitente (Resend; sin `RESEND_API_KEY` se simula en consola).
 
@@ -122,7 +123,7 @@ Funciones SQL (la lógica crítica vive en la base de datos):
 ```
 .do/app.yaml                  Especificación de DigitalOcean App Platform
 db/
-  migrations/                 0001…0012 (esquema y funciones)
+  migrations/                 0001…0013 (esquema y funciones)
   seed-demo.sql               Cliente y evento de ejemplo (opcional)
 scripts/
   migrate.mjs                 Aplica migraciones pendientes (npm run db:migrate)

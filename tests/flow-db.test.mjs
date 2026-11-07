@@ -291,3 +291,35 @@ test("perfil cliente: ve su empresa pero no obtiene permisos de coordinador", as
     await pool.query("delete from users where id=$1", [user]);
   }
 });
+
+test("regularizar: agregar y quitar acompañantes después de confirmar", async () => {
+  const s = await seed({ max: 2, capacity: 3 });
+  try {
+    const inv = await invitee(s);
+    const r = await register(s, s.day, inv);
+    const add = (doc, name = "Acomp") => pool.query("select add_companion($1,$2,'DNI',$3) id", [r.out_registration_id, name, doc]).then((x) => x.rows[0].id);
+    await assert.rejects(add(inv.doc), err(/COMPANION_IS_HOLDER/));
+    const c1 = await add("70000001");
+    await assert.rejects(add("70000001"), err(/COMPANION_DUPLICATE/));
+    await add("70000002");
+    assert.equal(await taken(s.day), 3);
+    await assert.rejects(add("70000003"), err(/TOO_MANY_COMPANIONS/), "máximo del evento");
+    const reg = (await pool.query("select companions_count, seats from registrations where id=$1", [r.out_registration_id])).rows[0];
+    assert.deepEqual(reg, { companions_count: 2, seats: 3 });
+
+    await pool.query("select remove_companion($1,$2)", [r.out_registration_id, c1]);
+    assert.equal(await taken(s.day), 2, "quitar libera el cupo");
+    const c3 = await add("70000003");
+    assert.ok(c3, "se puede volver a agregar");
+    await pool.query("select check_in($1,$2,false,$3::uuid[],null,null,'DOCUMENTO')", [r.out_registration_id, s.day, [c3]]);
+    await assert.rejects(pool.query("select remove_companion($1,$2)", [r.out_registration_id, c3]), /ALREADY_CHECKED_IN/);
+
+    // Sin cupo en la fecha
+    const s2 = await seed({ max: 2, capacity: 1 });
+    const r2 = await register(s2, s2.day, await invitee(s2));
+    await assert.rejects(pool.query("select add_companion($1,'Uno','DNI','71111111')", [r2.out_registration_id]), /SOLD_OUT/);
+    await cleanup(s2);
+  } finally {
+    await cleanup(s);
+  }
+});

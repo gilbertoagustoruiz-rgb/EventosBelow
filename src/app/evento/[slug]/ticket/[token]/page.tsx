@@ -6,6 +6,7 @@ import { queryOne } from "@/lib/db";
 import type { DocumentType, RegistrationStatus } from "@/lib/types";
 import { brandStyle } from "@/lib/format";
 import { TicketCard, type TicketData } from "@/components/registration/ticket-card";
+import { CompanionManager } from "@/components/registration/companion-manager";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: { absolute: "Tu ticket" }, robots: { index: false } };
@@ -27,7 +28,7 @@ export default async function TicketPage({ params, searchParams }: Props) {
     document_type: DocumentType;
     document_number: string;
     company: string | null;
-    companions: { full_name: string; checked_in: boolean }[];
+    companions: { id: string; full_name: string; document_type: string; document_number: string; checked_in: boolean }[];
     holder_checked_in_at: string | null;
     slug: string;
     name: string;
@@ -38,13 +39,18 @@ export default async function TicketPage({ params, searchParams }: Props) {
     starts_at: string;
     ends_at: string;
     label: string | null;
+    companion_mode: string;
+    max_companions: number;
+    can_change: boolean;
   }>(
     `select r.token, r.status, r.full_name, r.email, r.document_type, r.document_number, r.company,
             r.holder_checked_in_at,
-            coalesce((select json_agg(json_build_object('full_name', c.full_name, 'checked_in', c.checked_in_at is not null) order by c.position)
+            coalesce((select json_agg(json_build_object('id', c.id, 'full_name', c.full_name, 'document_type', c.document_type, 'document_number', c.document_number, 'checked_in', c.checked_in_at is not null) order by c.position)
                         from companions c where c.registration_id = r.id), '[]') as companions,
             e.slug, e.name, e.venue, e.logo_url, e.primary_color,
-            d.event_day, d.starts_at::text, d.ends_at::text, d.label
+            d.event_day, d.starts_at::text, d.ends_at::text, d.label, e.companion_mode, e.max_companions,
+            (e.is_published and e.registration_open and r.status <> 'CANCELADO'
+             and d.event_day >= (now() at time zone e.timezone)::date) as can_change
        from registrations r
        join events e on e.id = r.event_id
        join event_dates d on d.id = r.event_date_id
@@ -92,6 +98,16 @@ export default async function TicketPage({ params, searchParams }: Props) {
         </div>
       )}
       <TicketCard ticket={ticket} />
+      {r.can_change && r.companion_mode !== "NONE" && r.max_companions > 0 && (
+        <CompanionManager
+          token={r.token}
+          max={r.max_companions}
+          required={r.companion_mode === "REQUIRED"}
+          companions={r.companions.map((c) => ({
+            id: c.id, fullName: c.full_name, documentType: c.document_type, documentNumber: c.document_number, checkedIn: c.checked_in,
+          }))}
+        />
+      )}
       <p className="no-print mt-8 text-center text-sm">
         <Link href={`/evento/${event.slug}`} className="text-slate-500 underline-offset-4 hover:underline">
           Volver

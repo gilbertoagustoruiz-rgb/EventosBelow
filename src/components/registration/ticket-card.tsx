@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import { QRCodeCanvas, QRCodeSVG } from "qrcode.react";
-import { CalendarDays, CheckCircle2, Clock, Download, MapPin, Printer, User, UserPlus } from "lucide-react";
+import { CalendarDays, CheckCircle2, Clock, Download, IdCard, MapPin, Printer, User, UserPlus } from "lucide-react";
 import { formatDay, formatTime } from "@/lib/format";
 import { DOCUMENT_LABELS } from "@/lib/validation";
 import type { DocumentType, RegistrationStatus } from "@/lib/types";
@@ -105,7 +105,20 @@ export function TicketCard({ ticket }: { ticket: TicketData }) {
         </div>
       </article>
 
-      <p className="no-print mt-5 rounded-xl border border-slate-200 bg-white p-4 text-center text-sm leading-relaxed text-slate-600">{cancelled ? "Este ticket fue cancelado. Contacta al organizador si necesitas ayuda." : "Guarda tu QR y preséntalo junto con tu DNI físico al llegar al evento."}</p>
+      {cancelled ? (
+        <p className="no-print mt-5 rounded-xl border border-slate-200 bg-white p-4 text-center text-sm leading-relaxed text-slate-600">
+          Este ticket fue cancelado. Contacta al organizador si necesitas ayuda.
+        </p>
+      ) : (
+        <div role="note" className="mt-5 flex items-center gap-3 rounded-2xl border-2 border-brand bg-brand/5 p-4 sm:p-5">
+          <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand text-brand-fg">
+            <IdCard className="size-6" />
+          </span>
+          <p className="text-base font-bold leading-snug text-slate-900 sm:text-lg">
+            Guarda tu QR y preséntalo junto con tu <span className="underline decoration-brand decoration-2 underline-offset-4">DNI físico</span> al llegar al evento.
+          </p>
+        </div>
+      )}
       <div className="no-print mt-4 grid gap-3 sm:grid-cols-2">
         <button type="button" onClick={downloadPng} className="btn-ghost" disabled={cancelled}>
           <Download className="size-4" /> Descargar QR
