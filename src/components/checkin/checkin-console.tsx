@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import {
   AlertTriangle,
   Ban,
+  Barcode,
   CalendarX2,
   CheckCircle2,
   IdCard,
@@ -28,7 +29,8 @@ import {
   type LookupResult,
 } from "@/app/checkin/actions";
 import { QrScanner } from "./qr-scanner";
-import { extractToken, feedback } from "./feedback";
+import { feedback, parseScan } from "./feedback";
+import { useScannerGun } from "./use-scanner-gun";
 import { formatClock, formatDayShort, formatTime } from "@/lib/format";
 import type { EventDate } from "@/lib/types";
 
@@ -51,7 +53,7 @@ interface Props {
 export function CheckinConsole({ eventId, accessKey, eventName, timezone, dates, initialDateId, operator }: Props) {
   const key = accessKey;
   const [dateId, setDateId] = useState(initialDateId);
-  const [mode, setMode] = useState<Mode>("document");
+  const [mode, setMode] = useState<Mode>("scan"); // el escáner QR siempre es la primera opción
   const [result, setResult] = useState<LookupResult | null>(null);
   const [method, setMethod] = useState<Method>("DOCUMENTO");
   const [stats, setStats] = useState<DateStats | null>(null);
@@ -82,6 +84,7 @@ export function CheckinConsole({ eventId, accessKey, eventName, timezone, dates,
     (r: LookupResult) => {
       if (resetTimer.current) clearTimeout(resetTimer.current);
       setResult(r);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       feedback(r.state === "VALID" || r.justCheckedIn ? "ok" : "error");
       // Tras un ingreso exitoso volvemos solos a la cámara o al campo de documento
       if (r.justCheckedIn && mode !== "search") {
@@ -108,23 +111,41 @@ export function CheckinConsole({ eventId, accessKey, eventName, timezone, dates,
   );
 
   // --- Acciones --------------------------------------------------------------------
-  const onScan = useCallback(
+  /** Cámara, pistola lectora o campo de DNI: QR del ticket, DNI físico (barras/MRZ) o código. */
+  const onRead = useCallback(
     (text: string) => {
-      const token = extractToken(text);
-      setMethod("QR");
-      if (!token) {
+      const parsed = parseScan(text);
+      if (!parsed) {
+        setMethod("QR");
         show({ state: "NOT_FOUND", person: null });
         return;
       }
-      run(() => lookupRegistration({ eventId, key, eventDateId: dateId, token, method: "QR" }));
+      if ("token" in parsed) {
+        setMethod("QR");
+        run(() => lookupRegistration({ eventId, key, eventDateId: dateId, token: parsed.token, method: "QR" }));
+      } else {
+        setMethod("DOCUMENTO");
+        run(() => lookupRegistration({ eventId, key, eventDateId: dateId, codes: parsed.codes, method: "DOCUMENTO" }));
+      }
     },
     [eventId, key, dateId, run, show],
   );
+  const onScan = onRead;
+  const onCode = onRead;
 
-  const onCode = (code: string) => {
-    setMethod("DOCUMENTO");
-    run(() => lookupRegistration({ eventId, key, eventDateId: dateId, code, method: "DOCUMENTO" }));
-  };
+  // Pistola lectora: funciona en cualquier modo, también con un resultado en pantalla
+  const [gunFlash, setGunFlash] = useState(false);
+  useEffect(() => {
+    if (!gunFlash) return;
+    const t = setTimeout(() => setGunFlash(false), 2000);
+    return () => clearTimeout(t);
+  }, [gunFlash]);
+  useScannerGun((text) => {
+    if (busy) return;
+    if (resetTimer.current) clearTimeout(resetTimer.current);
+    setGunFlash(true);
+    onRead(text);
+  });
 
   const onPick = (p: CheckinPerson) => {
     setMethod("BUSQUEDA");
@@ -191,11 +212,11 @@ export function CheckinConsole({ eventId, accessKey, eventName, timezone, dates,
         </div>
 
         <div className="grid grid-cols-3 gap-1 rounded-xl bg-white/5 p-1" inert={busy}>
-          <ModeButton active={mode === "document"} onClick={() => switchMode("document")}>
-            <IdCard className="size-4" /> DNI o código
-          </ModeButton>
           <ModeButton active={mode === "scan"} onClick={() => switchMode("scan")}>
             <ScanLine className="size-4" /> Escanear QR
+          </ModeButton>
+          <ModeButton active={mode === "document"} onClick={() => switchMode("document")}>
+            <IdCard className="size-4" /> DNI o código
           </ModeButton>
           <ModeButton active={mode === "search"} onClick={() => switchMode("search")}>
             <Search className="size-4" /> Por nombre
@@ -203,7 +224,7 @@ export function CheckinConsole({ eventId, accessKey, eventName, timezone, dates,
         </div>
       </header>
 
-      <main className="flex-1 space-y-4 px-4 py-4">
+      <main className="flex-1 space-y-4 px-4 py-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
         {error && (
           <p role="alert" className="flex items-center gap-2 rounded-xl bg-amber-500/15 p-3 text-sm text-amber-200">
             <AlertTriangle className="size-4" /> {error}
@@ -211,8 +232,9 @@ export function CheckinConsole({ eventId, accessKey, eventName, timezone, dates,
         )}
 
         {mode === "scan" && (
-          <div className="relative">
-            <p className="mb-3 text-center text-sm text-slate-400">Coloca el QR del ticket frente a la cámara.</p>
+          // La cámara queda encendida pero oculta mientras se muestra el resultado (reanuda al instante)
+          <div className={result ? "hidden" : "relative"}>
+            <p className="mb-3 text-center text-sm text-slate-400">Coloca el QR del ticket o el código de barras del DNI frente a la cámara.</p>
             <QrScanner onScan={onScan} paused={busy || Boolean(result)} />
             {busy && !result && (
               <div className="absolute inset-0 grid place-items-center">
@@ -238,6 +260,13 @@ export function CheckinConsole({ eventId, accessKey, eventName, timezone, dates,
             onClose={clearResult}
           />
         )}
+
+        {!result && (
+          <p className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-center text-xs transition ${gunFlash ? "bg-emerald-500/15 text-emerald-300" : "text-slate-500"}`}>
+            <Barcode className="size-4 shrink-0" />
+            ¿Tienes pistola lectora? Escanea el QR del ticket o el código del DNI físico en cualquier momento.
+          </p>
+        )}
       </main>
     </div>
   );
@@ -261,14 +290,14 @@ function DocumentPanel({ onSubmit, busy }: { onSubmit: (code: string) => void; b
       }}
     >
       <label htmlFor="checkin-code" className="block text-sm font-medium text-slate-300">
-        Documento de identidad o código de vendedor
+        DNI o código del trabajador
       </label>
       <input
         ref={ref}
         id="checkin-code"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="Ej. 45678912 o V-001"
+        placeholder="Escribe o escanea el DNI"
         autoComplete="off"
         autoCapitalize="characters"
         className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-4 text-center font-mono text-2xl tracking-widest text-white placeholder:text-base placeholder:tracking-normal placeholder:text-slate-500 outline-none focus:border-white/30 focus:ring-4 focus:ring-white/10"
@@ -276,7 +305,7 @@ function DocumentPanel({ onSubmit, busy }: { onSubmit: (code: string) => void; b
       <button type="submit" disabled={busy || value.trim().length < 3} className="btn w-full bg-white py-3.5 text-base text-slate-900 hover:bg-slate-100 disabled:opacity-50">
         {busy ? <Loader2 className="size-5 animate-spin" /> : <IdCard className="size-5" />} Verificar asistencia
       </button>
-      <p className="text-xs text-slate-400">Funciona con el documento del titular o de cualquiera de sus acompañantes.</p>
+      <p className="text-xs text-slate-400">Funciona con el DNI del titular o de sus acompañantes, el código del trabajador o la lectura de una pistola.</p>
     </form>
   );
 }
@@ -358,8 +387,16 @@ function ResultPanel({
       <div className="flex items-start gap-3 p-5">
         <span className="[&>svg]:size-12">{view.icon}</span>
         <div className="flex-1">
-          <h2 className="text-2xl font-bold leading-tight">{view.title}</h2>
-          <p className="text-white/90">{view.subtitle}</p>
+          <h2 className="text-2xl font-bold leading-tight sm:text-3xl">{view.title}</h2>
+          {state === "ALREADY_IN" && !justCheckedIn && firstEntry ? (
+            <>
+              <p className="mt-1 text-white/90">Esta persona ya ingresó al evento a las</p>
+              <p className="text-4xl font-extrabold tabular-nums leading-tight">{formatClock(firstEntry, timezone)}</p>
+              <p className="mt-1 text-sm font-semibold text-white/90">No registres un nuevo ingreso.</p>
+            </>
+          ) : (
+            <p className="mt-0.5 text-white/90">{view.subtitle}</p>
+          )}
         </div>
         <button onClick={onClose} disabled={busy} aria-label="Cerrar resultado" className="grid size-11 place-items-center rounded-full hover:bg-white/15 disabled:opacity-50">
           <X className="size-5" />
@@ -445,8 +482,8 @@ function PersonRow({
     <>
       <span className="grid size-9 shrink-0 place-items-center rounded-full bg-white/15">{icon}</span>
       <div className="min-w-0 flex-1">
-        <p className="truncate font-semibold">{name}</p>
-        <p className="truncate text-sm text-white/75">{detail}</p>
+        <p className="break-words text-lg font-semibold leading-snug">{name}</p>
+        <p className="break-words text-sm text-white/75">{detail}</p>
       </div>
       {checkedAt ? (
         <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-900">

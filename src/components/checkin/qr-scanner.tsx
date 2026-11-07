@@ -36,7 +36,13 @@ export function QrScanner({ onScan, paused = false, cooldownMs = 3000 }: Props) 
       const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
       if (cancelled) return;
       scanner = new Html5Qrcode(regionId, {
-        formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+        // QR del ticket y, además, los códigos del DNI físico (PDF417 / barras)
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.QR_CODE,
+          Html5QrcodeSupportedFormats.PDF_417,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+        ],
         verbose: false,
       });
       try {
@@ -45,7 +51,7 @@ export function QrScanner({ onScan, paused = false, cooldownMs = 3000 }: Props) 
           {
             fps: 12,
             qrbox: (w, h) => {
-              const size = Math.floor(Math.min(w, h) * 0.72);
+              const size = Math.floor(Math.min(w, h) * 0.8);
               return { width: size, height: size };
             },
             aspectRatio: 1,

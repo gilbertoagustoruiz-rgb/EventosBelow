@@ -116,6 +116,8 @@ const lookupSchema = z.object({
   registrationId: z.string().uuid().optional(),
   /** DNI / documento (titular o acompañante) o código de vendedor, búsqueda exacta */
   code: z.string().trim().max(40).optional(),
+  /** Varios candidatos (pistola lectora / DNI): se usa el primero que exista */
+  codes: z.array(z.string().trim().min(3).max(40)).max(6).optional(),
   method: METHOD,
 });
 
@@ -124,7 +126,7 @@ const lookupSchema = z.object({
  * No marca ingresos. Las lecturas por QR o documento quedan en la bitácora (incluidas las alertas).
  */
 export async function lookupRegistration(input: z.input<typeof lookupSchema>): Promise<LookupResult> {
-  const { eventId, eventDateId, token, registrationId, code, method, key } = lookupSchema.parse(input);
+  const { eventId, eventDateId, token, registrationId, code, codes, method, key } = lookupSchema.parse(input);
   const access = await checkinAccess(eventId, key);
   if (!access) return { state: "NO_ACCESS", person: null };
 
@@ -133,29 +135,22 @@ export async function lookupRegistration(input: z.input<typeof lookupSchema>): P
     row = await queryOne<Row>(`${SELECT} where r.event_id = $1 and r.id = $2`, [eventId, registrationId]);
   } else if (token && /^[a-f0-9]{32}$/i.test(token)) {
     row = await queryOne<Row>(`${SELECT} where r.event_id = $1 and r.token = $2`, [eventId, token.toLowerCase()]);
-  } else if (code) {
-    const doc = code.toUpperCase().replace(/[\s.-]/g, "");
-    // Prioriza inscripciones activas de la fecha seleccionada
-    row = await queryOne<Row>(
-      `${SELECT}
-        where r.event_id = $1
-          and (r.document_number = $2 or upper(r.employee_code) = upper($3)
-               or regexp_replace(upper(r.employee_code), '[[:space:].-]', '', 'g') = $2
-               or exists (select 1 from companions c where c.registration_id = r.id and c.document_number = $2))
-        order by (r.status = 'CANCELADO'), (r.event_date_id <> $4), r.created_at desc
-        limit 1`,
-      [eventId, doc, code.trim(), eventDateId],
-    );
+  } else if (code || codes?.length) {
+    for (const candidate of code ? [code] : codes!) {
+      row = await findByCode(eventId, eventDateId, candidate);
+      if (row) break;
+    }
   }
 
   const state: LookupState = row ? evaluate(row, eventDateId) : "NOT_FOUND";
+  const logged = code ?? codes?.[0];
 
   // Bitácora de lecturas en el ingreso (no de búsquedas por nombre)
   if (method !== "BUSQUEDA" && LOG_RESULT[state]) {
     await query(
       `insert into checkin_log (event_id, event_date_id, registration_id, employee_id, result, method, detail)
        values ($1, $2, $3, $4, $5, $6, $7)`,
-      [eventId, eventDateId, row?.id ?? null, access.employeeId, LOG_RESULT[state], method, row ? null : maskCode(code ?? "QR")],
+      [eventId, eventDateId, row?.id ?? null, access.employeeId, LOG_RESULT[state], method, row ? null : maskCode(logged ?? "QR")],
     );
   }
 
@@ -166,6 +161,21 @@ export async function lookupRegistration(input: z.input<typeof lookupSchema>): P
     registeredDay = d?.event_day;
   }
   return { state, person: toPerson(row), registeredDay };
+}
+
+/** Inscripción por documento (titular o acompañante) o código de trabajador; prioriza la fecha activa. */
+function findByCode(eventId: string, eventDateId: string, code: string) {
+  const doc = code.toUpperCase().replace(/[\s.-]/g, "");
+  return queryOne<Row>(
+      `${SELECT}
+        where r.event_id = $1
+          and (r.document_number = $2 or upper(r.employee_code) = upper($3)
+               or regexp_replace(upper(r.employee_code), '[[:space:].-]', '', 'g') = $2
+               or exists (select 1 from companions c where c.registration_id = r.id and c.document_number = $2))
+        order by (r.status = 'CANCELADO'), (r.event_date_id <> $4), r.created_at desc
+        limit 1`,
+      [eventId, doc, code.trim(), eventDateId],
+    );
 }
 
 /** "12345678" → "•••••678" (la bitácora no guarda documentos de personas no inscritas) */

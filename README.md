@@ -72,7 +72,8 @@ Jerarquía: **Cliente → Proyecto → Eventos**. Cada evento tiene fechas con a
 - **Ticket con QR** en pantalla, descargable e imprimible. Si la base trae correo, también se envía por correo con el nombre del evento como remitente (Resend; sin `RESEND_API_KEY` se simula en consola).
 
 ### 4. Acreditación
-- Modo principal **DNI o código**: funciona con el documento del titular, de cualquier acompañante o con el código de vendedor. También **escáner QR** y búsqueda por nombre.
+- Primera opción: **escáner QR** (la cámara también lee el PDF417 / código de barras del DNI). Además **DNI o código** (titular, acompañante o código del trabajador) y búsqueda por nombre.
+- **Pistolas lectoras** USB o Bluetooth (modo teclado): funcionan en cualquier pantalla sin tocar nada; reconocen el QR del ticket, el DNI físico (8 dígitos, con dígito verificador, MRZ del DNIe o PDF417) y el código del trabajador.
 - Muestra al titular y a cada acompañante para marcar **quién ingresa**; los que faltan pueden ingresar después.
 - Si se intenta registrar de nuevo: **“Esta persona ya ingresó al evento a las HH:MM”**, sin duplicar asistencia. También avisa *fecha incorrecta*, *cancelado* y *no encontrado*.
 - Cada intento queda en la **bitácora** con el empleado que lo hizo; con bloqueo de fila no hay doble ingreso aunque dos promotores escaneen a la vez.
