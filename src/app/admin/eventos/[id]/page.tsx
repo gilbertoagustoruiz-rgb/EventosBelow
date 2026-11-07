@@ -6,6 +6,7 @@ import { withCheckinBy } from "@/lib/registrations";
 import { appUrl, brandStyle, formatDateTime, formatDayShort } from "@/lib/format";
 import { EventStaff } from "./staff";
 import { ResetEvent } from "./reset";
+import { GenerateQr } from "@/components/admin/generate-qr";
 import { ReportLinks } from "@/components/admin/report-links";
 import { eventStaff, staffCandidates } from "@/lib/staff";
 import { projectOptions } from "@/lib/projects";
@@ -138,6 +139,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
         <span className="text-sm font-medium text-slate-700">Enlace de registro:</span>
         <code className="min-w-0 flex-1 break-all rounded bg-slate-100 px-2 py-1 text-sm">{publicUrl}</code>
         <CopyButton value={publicUrl} />
+        <GenerateQr eventId={event.id} eventName={event.name} url={publicUrl} />
         {!event.is_published && <span className="text-xs font-medium text-amber-700">Aún no publicado</span>}
       </div>
 
