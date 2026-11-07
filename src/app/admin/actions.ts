@@ -216,25 +216,32 @@ export async function addEventDate(_: FormState, fd: FormData): Promise<FormStat
   return { ok: true };
 }
 
-export async function updateCapacity(_: FormState, fd: FormData): Promise<FormState> {
-  const eventId = str(fd, "eventId") ?? "";
+/** Edita todo de una fecha: día, horario, etiqueta y aforo. Los confirmados de esa fecha la siguen. */
+export async function updateEventDate(_: FormState, fd: FormData): Promise<FormState> {
   const dateId = str(fd, "dateId") ?? "";
-  const capacity = Number(str(fd, "capacity"));
-  if (!UUID.test(dateId) || !Number.isInteger(capacity) || capacity < 1 || capacity > 100_000) {
-    return { message: "Aforo no válido." };
-  }
-  await requireEvent(eventId, "admin");
+  if (!UUID.test(dateId)) return { message: "Fecha no válida." };
+  const parsed = dateSchema.safeParse(Object.fromEntries(fd));
+  if (!parsed.success) return { fieldErrors: flattenErrors(parsed.error) };
+  const d = parsed.data;
+  await requireEvent(d.eventId, "admin");
 
   try {
-    await query("update event_dates set capacity = $3 where id = $1 and event_id = $2", [dateId, eventId, capacity]);
+    const res = await query<{ id: string }>(
+      `update event_dates set event_day = $3, starts_at = $4, ends_at = $5, label = $6, capacity = $7
+        where id = $1 and event_id = $2 returning id`,
+      [dateId, d.eventId, d.eventDay, d.startsAt, d.endsAt, d.label || null, d.capacity],
+    );
+    if (!res.length) return { message: "La fecha ya no existe." };
   } catch (err) {
-    // event_dates_capacity_ck impide bajar el aforo por debajo de los inscritos
-    if (pgCode(err) === "23514") return { message: "El aforo no puede ser menor que los cupos ya ocupados." };
-    return { message: "No se pudo actualizar." };
+    if (pgCode(err) === "23505") return { message: "Ya existe otra fecha con ese día y hora de inicio." };
+    if (pgCode(err) === "23514") return { fieldErrors: { capacity: "No puede ser menor que los cupos ya ocupados" } };
+    console.error("[updateEventDate]", err);
+    return { message: "No se pudo guardar la fecha." };
   }
 
-  revalidatePath(`/admin/eventos/${eventId}`);
-  return { ok: true, message: "Aforo actualizado." };
+  revalidatePath(`/admin/eventos/${d.eventId}`);
+  revalidatePath("/evento/[slug]", "page");
+  return { ok: true, message: "Fecha actualizada." };
 }
 
 export async function deleteEventDate(fd: FormData) {

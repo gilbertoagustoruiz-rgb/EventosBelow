@@ -47,7 +47,7 @@ Jerarquía: **Cliente → Proyecto → Eventos**. Cada evento tiene fechas con a
 ### 1. Administración
 - **Clientes y proyectos**: cada cliente nace con el proyecto «General»; se pueden crear más y archivarlos.
 - **Eventos**: proyecto, nombre, descripción, lugar, enlace (`slug`), **logo** y **color primario** con vista previa; acompañantes *Sin / Opcional / Obligatorio* con **máximo configurable (hasta 10)**, cada uno con nombre y documento; publicación e inscripciones abiertas/cerradas.
-- **Fechas y aforo**: varias fechas por evento con horario, etiqueta y aforo. Cada acompañante ocupa un cupo.
+- **Fechas y aforo**: varias fechas por evento con horario, etiqueta y aforo, todo editable (el aforo no baja de los cupos ocupados; los confirmados siguen a su fecha). Cada acompañante ocupa un cupo.
 - **Base de invitados**: carga desde Excel (.xlsx, hasta 5 000 filas) con vista previa fila por fila y la lista de columnas reconocidas e ignoradas; reconoce variantes de encabezados (`N° de documento`, `Id RH`, `Código vendedor`, `Nombre Completo`, `Fecha de asistencia`…). Si trae **fecha de asistencia**, el invitado solo puede confirmar esa fecha. Si el documento ya existe, actualiza sus datos. También se agregan o quitan invitados uno a uno, y se ve quién ya confirmó su día.
 - **Inscripciones**: búsqueda por nombre, correo, documento o código; acompañantes con su documento y cuántos ingresaron; cancelación (libera todos los cupos del grupo).
 - **Generar QR** del enlace de confirmación (junto a «Copiar»): QR con el logo del evento al centro y corrección de errores alta; descarga en PNG 2048 × 2048 px o SVG vectorial.
