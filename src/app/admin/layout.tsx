@@ -36,7 +36,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             </form>
           </div>
         </div>
-        <div className="mx-auto max-w-6xl px-4 pb-3 sm:px-6"><AdminNavigation platformAdmin={viewer.isPlatformAdmin} /></div>
+        <div className="mx-auto max-w-6xl px-4 pb-3 sm:px-6"><AdminNavigation platformAdmin={viewer.isPlatformAdmin} reports={viewer.isPlatformAdmin || viewer.memberships.length > 0} /></div>
       </header>
       <main id="admin-content" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-8 sm:px-6 sm:py-10">{children}</main>
     </div>

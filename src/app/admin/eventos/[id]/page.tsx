@@ -6,6 +6,7 @@ import { withCheckinBy } from "@/lib/registrations";
 import { appUrl, brandStyle, formatDateTime, formatDayShort } from "@/lib/format";
 import { EventStaff } from "./staff";
 import { ResetEvent } from "./reset";
+import { ReportLinks } from "@/components/admin/report-links";
 import { eventStaff, staffCandidates } from "@/lib/staff";
 import { projectOptions } from "@/lib/projects";
 import { EventForm } from "@/components/admin/event-form";
@@ -65,6 +66,13 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
     projectOptions(viewer),
     queryOne<{ n: number }>("select count(*)::int as n from invitees where event_id = $1", [id]),
   ]);
+  const reportCounts = await queryOne<{ confirmed: number; entered: number }>(
+    `select count(*)::int as confirmed,
+            (count(holder_checked_in_at)
+              + coalesce(sum((select count(*) from companions c where c.registration_id = r.id and c.checked_in_at is not null)), 0))::int as entered
+       from registrations r where r.event_id = $1 and r.status <> 'CANCELADO'`,
+    [id],
+  );
   const resetCounts = viewer.isPlatformAdmin
     ? await queryOne<{ regs: number; logs: number }>(
         `select (select count(*) from registrations where event_id = $1)::int as regs,
@@ -175,6 +183,12 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
       </section>
 
       <EventStaff eventId={event.id} staff={staff} candidates={candidates} canManageSupervisors />
+
+      <section id="reportes" className="card p-4 sm:p-6">
+        <h2 className="text-lg font-semibold">Reportes en Excel</h2>
+        <p className="mb-4 mt-1 text-sm text-slate-500">Con el logo y los colores del evento. Se generan con los datos del momento.</p>
+        <ReportLinks eventId={event.id} confirmed={reportCounts?.confirmed ?? 0} entered={reportCounts?.entered ?? 0} />
+      </section>
 
       {/* Registros ------------------------------------------------------------------ */}
       <section id="inscripciones" className="card p-4 sm:p-6">

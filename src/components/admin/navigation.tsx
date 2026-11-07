@@ -1,10 +1,10 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, CalendarDays, FolderKanban, Network, ScanLine, ShieldCheck, Users } from "lucide-react";
+import { Building2, CalendarDays, FileSpreadsheet, FolderKanban, Network, ScanLine, ShieldCheck, Users } from "lucide-react";
 
 /** Menú según perfil: el administrador ve la configuración; coordinador y supervisor, sus eventos y acreditación. */
-export function AdminNavigation({ platformAdmin }: { platformAdmin: boolean }) {
+export function AdminNavigation({ platformAdmin, reports = platformAdmin }: { platformAdmin: boolean; reports?: boolean }) {
   const pathname = usePathname();
   const at = (prefix: string) => pathname.startsWith(prefix);
   const links = [
@@ -18,6 +18,7 @@ export function AdminNavigation({ platformAdmin }: { platformAdmin: boolean }) {
           { href: "/admin/perfiles", label: "Perfiles", icon: ShieldCheck, active: at("/admin/perfiles") },
         ]
       : []),
+    ...(reports ? [{ href: "/admin/reportes", label: "Reportes", icon: FileSpreadsheet, active: at("/admin/reportes") }] : []),
     { href: "/checkin", label: "Acreditar asistentes", icon: ScanLine, active: false },
   ];
   return <nav aria-label="Administración" className="flex gap-2 overflow-x-auto pb-1">

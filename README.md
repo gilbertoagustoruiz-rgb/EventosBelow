@@ -48,6 +48,7 @@ Jerarquía: **Cliente → Proyecto → Eventos**. Cada evento tiene fechas con a
 - **Fechas y aforo**: varias fechas por evento con horario, etiqueta y aforo. Cada acompañante ocupa un cupo.
 - **Base de invitados**: carga desde Excel (.xlsx, hasta 5 000 filas) con vista previa fila por fila y la lista de columnas reconocidas e ignoradas; reconoce variantes de encabezados (`N° de documento`, `Id RH`, `Código vendedor`, `Nombre Completo`, `Fecha de asistencia`…). Si trae **fecha de asistencia**, el invitado solo puede confirmar esa fecha. Si el documento ya existe, actualiza sus datos. También se agregan o quitan invitados uno a uno, y se ve quién ya confirmó su día.
 - **Inscripciones**: búsqueda por nombre, correo, documento o código; acompañantes con su documento y cuántos ingresaron; cancelación (libera todos los cupos del grupo).
+- **Reportes** (`/admin/reportes` y en cada evento; administrador y coordinador): **Base de confirmación** (resumen por fecha, confirmados, pendientes) y **Base de asistencia** (resumen con hora pico, asistentes con hora y quién acreditó, no asistieron), en Excel con el **logo y los colores del evento**.
 - **Reiniciar evento** (solo administrador): tras las pruebas, borra confirmaciones, acompañantes e ingresos y libera los cupos; opcionalmente también la base de invitados. Conserva fechas, configuración y personal; pide escribir REINICIAR.
 - **Exportación** a **Excel** (registros, resumen por fecha y **bitácora** de acreditación) o **CSV**.
 
