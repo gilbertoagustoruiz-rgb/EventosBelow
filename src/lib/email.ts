@@ -38,7 +38,7 @@ function render(m: ConfirmationEmail) {
           <img src="${qrUrl}" width="220" height="220" alt="Código QR de acceso" style="border:1px solid #e2e8f0;border-radius:12px;padding:8px" />
           <p style="margin:8px 0 0;font-family:monospace;font-size:12px;color:#64748b">${m.token.slice(0, 8).toUpperCase()}</p>
         </div>
-        <p style="margin:0 0 20px;color:#334155">Presenta este código en el ingreso junto con tu documento de identidad.</p>
+        <p style="margin:0 0 20px;color:#334155">Guarda tu QR y preséntalo junto con tu DNI físico al llegar al evento.</p>
         <a href="${ticketUrl}" style="display:inline-block;background:${m.brandColor};color:#fff;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:bold">Ver mi ticket</a>
       </td></tr>
     </table>

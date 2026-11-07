@@ -105,7 +105,7 @@ export function TicketCard({ ticket }: { ticket: TicketData }) {
         </div>
       </article>
 
-      <p className="no-print mt-5 rounded-xl border border-slate-200 bg-white p-4 text-center text-sm leading-relaxed text-slate-600">{cancelled ? "Este ticket fue cancelado. Contacta al organizador si necesitas ayuda." : "Guarda tu QR y preséntalo junto con tu documento al llegar al evento."}</p>
+      <p className="no-print mt-5 rounded-xl border border-slate-200 bg-white p-4 text-center text-sm leading-relaxed text-slate-600">{cancelled ? "Este ticket fue cancelado. Contacta al organizador si necesitas ayuda." : "Guarda tu QR y preséntalo junto con tu DNI físico al llegar al evento."}</p>
       <div className="no-print mt-4 grid gap-3 sm:grid-cols-2">
         <button type="button" onClick={downloadPng} className="btn-ghost" disabled={cancelled}>
           <Download className="size-4" /> Descargar QR
