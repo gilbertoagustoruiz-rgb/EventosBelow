@@ -7,9 +7,9 @@ import { AssignForm } from "./form";
 import { unassignEmployee } from "./actions";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "Coordinadores por cliente" };
+export const metadata = { title: "Accesos por cliente" };
 
-type Emp = { id: string; profile: "COORDINADOR"; full_name: string; document_number: string | null; email: string | null };
+type Emp = { id: string; profile: "COORDINADOR" | "CLIENTE"; full_name: string; document_number: string | null; email: string | null };
 
 export default async function AssignmentsPage({ searchParams }: { searchParams: Promise<{ cliente?: string }> }) {
   await requireAdmin();
@@ -22,7 +22,7 @@ export default async function AssignmentsPage({ searchParams }: { searchParams: 
     ),
     query<Emp>(
       `select id, profile, full_name, document_number, email
-         from employees where is_active and profile = 'COORDINADOR' order by full_name`,
+         from employees where is_active and profile in ('COORDINADOR', 'CLIENTE') order by full_name`,
     ),
     query<{ employee_id: string; tenant_id: string }>(
       `select ec.employee_id, ec.tenant_id from employee_clients ec
@@ -40,10 +40,11 @@ export default async function AssignmentsPage({ searchParams }: { searchParams: 
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Coordinadores por cliente</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Accesos por cliente</h1>
         <p className="mt-2 text-slate-600">
-          Un coordinador solo ve y gestiona los eventos de los clientes asignados aquí. En cada evento agrega a su
-          personal de apoyo (supervisores y promotores) desde el directorio de empleados.
+          Un coordinador solo ve y gestiona los eventos de los clientes asignados aquí. Los usuarios cliente ven el
+          dashboard y descargan las bases de los eventos de su empresa, sin poder editar. Supervisores y promotores se
+          agregan en cada evento.
         </p>
         {cliente && (
           <Link href="/admin/asignaciones" className="mt-3 inline-block text-sm text-indigo-700 underline">Ver todos los clientes</Link>
@@ -58,6 +59,7 @@ export default async function AssignmentsPage({ searchParams }: { searchParams: 
 
       {shown.map((t) => {
         const coord = byTenant(t.id, "COORDINADOR");
+        const clientUsers = byTenant(t.id, "CLIENTE");
         return (
           <section key={t.id} className="card p-6">
             <div className="flex items-center gap-3">
@@ -68,10 +70,11 @@ export default async function AssignmentsPage({ searchParams }: { searchParams: 
               </div>
             </div>
 
-            <div className="mt-5 grid gap-6">
+            <div className="mt-5 grid gap-6 lg:grid-cols-2">
               {[
-                { title: "Coordinadores", label: "Coordinadores", group: coord, hint: "Sin coordinador: nadie del cliente puede organizar sus eventos." },
-              ].map(({ title, label, group, hint }) => (
+                { title: "Coordinadores", label: "Coordinadores", group: coord, hint: "Sin coordinador: nadie del cliente puede organizar sus eventos.", leave: "Perderá el acceso a los eventos de este cliente." },
+                { title: "Usuarios cliente", label: "Usuarios cliente", group: clientUsers, hint: "Sin usuarios cliente: la empresa no tiene acceso a su dashboard.", leave: "Dejará de ver el dashboard y las bases de este cliente." },
+              ].map(({ title, label, group, hint, leave }) => (
                 <div key={title} className="rounded-xl border border-slate-200 p-4">
                   <h3 className="text-sm font-semibold">
                     {title} <span className="font-normal text-slate-400">({group.assigned.length})</span>
@@ -87,7 +90,7 @@ export default async function AssignmentsPage({ searchParams }: { searchParams: 
                           <input type="hidden" name="tenantId" value={t.id} />
                           <input type="hidden" name="employeeId" value={e.id} />
                           <ConfirmButton
-                            message={`¿Quitar a ${e.full_name} de ${t.name}? Perderá el acceso a los eventos de este cliente.`}
+                            message={`¿Quitar a ${e.full_name} de ${t.name}? ${leave}`}
                             className="grid size-8 place-items-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
                           >
                             <X className="size-4" />

@@ -7,6 +7,7 @@ import { hashPassword, verifyPassword } from "@/lib/password";
 import { SESSION_COOKIE, sessionCookieOptions, signSession } from "@/lib/session";
 import { getViewer } from "@/lib/auth";
 import { safeNext } from "@/lib/safe-next";
+import { homeFor } from "@/lib/auth";
 import { createRateLimiter } from "@/lib/rate-limit";
 
 export interface LoginState {
@@ -39,11 +40,14 @@ export async function login(_: LoginState, fd: FormData): Promise<LoginState> {
   );
   const ok = await verifyPassword(password, user?.password_hash ?? DUMMY_HASH);
 
-  // Administrador, coordinador con clientes, o supervisor/promotor activo
+  // Administrador, coordinador con clientes, supervisor/promotor activo o usuario cliente con empresa asignada
   const authorized = user && (user.is_platform_admin || !!(await queryOne(
     `select 1 from tenant_members where user_id = $1
      union all
      select 1 from employees where user_id = $1 and is_active and profile in ('SUPERVISOR', 'PROMOTOR')
+     union all
+     select 1 from employees e join employee_clients ec on ec.employee_id = e.id
+      where e.user_id = $1 and e.is_active and e.profile = 'CLIENTE'
      limit 1`,
     [user.id],
   )));
@@ -92,5 +96,5 @@ export async function changePassword(_: PasswordState, fd: FormData): Promise<Pa
   // Las sesiones anteriores quedan invalidadas: emitimos una nueva para este dispositivo
   (await cookies()).set(SESSION_COOKIE, await signSession(viewer.userId), sessionCookieOptions);
 
-  redirect("/admin");
+  redirect(homeFor(viewer));
 }

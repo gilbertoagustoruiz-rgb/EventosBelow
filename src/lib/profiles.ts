@@ -1,5 +1,5 @@
 /** Perfiles fijos de Eventos Below y lo que puede hacer cada uno. */
-export type Profile = "ADMINISTRADOR" | "COORDINADOR" | "SUPERVISOR" | "PROMOTOR";
+export type Profile = "ADMINISTRADOR" | "COORDINADOR" | "SUPERVISOR" | "PROMOTOR" | "CLIENTE";
 
 export const PROFILES: Record<
   Profile,
@@ -53,9 +53,19 @@ export const PROFILES: Record<
     ],
     cannot: ["Entrar al panel de administración", "Ver eventos donde no fue agregado"],
   },
+  CLIENTE: {
+    label: "Cliente",
+    summary: "Usuario de la empresa cliente que sigue sus eventos.",
+    access: "Correo o DNI y contraseña",
+    can: [
+      "Ver en línea el dashboard de los eventos de su empresa: asistentes frente a la base cargada, horas pico y más",
+      "Descargar en Excel la base de confirmación y la base de asistencia",
+    ],
+    cannot: ["Editar eventos o la base de invitados", "Acreditar asistentes", "Ver eventos de otras empresas"],
+  },
 };
 
-export const PROFILE_ORDER: Profile[] = ["ADMINISTRADOR", "COORDINADOR", "SUPERVISOR", "PROMOTOR"];
+export const PROFILE_ORDER: Profile[] = ["ADMINISTRADOR", "COORDINADOR", "SUPERVISOR", "PROMOTOR", "CLIENTE"];
 
 /** Todos los perfiles ingresan con usuario y contraseña. */
 export const hasLogin = (_p: Profile) => true;

@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, readSession } from "@/lib/session";
 
-/** Filtro rápido: sin sesión válida no se entra a /admin ni /checkin. Los permisos finos se validan en el servidor. */
+/** Filtro rápido: sin sesión válida no se entra a /admin, /checkin ni /cliente. Los permisos finos se validan en el servidor. */
 export async function middleware(request: NextRequest) {
   const session = await readSession(request.cookies.get(SESSION_COOKIE)?.value);
   if (session) return NextResponse.next();
@@ -15,5 +15,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/checkin/:path*", "/cuenta/:path*"],
+  matcher: ["/admin/:path*", "/checkin/:path*", "/cuenta/:path*", "/cliente/:path*"],
 };

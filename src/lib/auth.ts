@@ -32,6 +32,8 @@ export interface Viewer {
   memberships: Membership[];
   /** Eventos donde es personal de apoyo (supervisor o promotor) */
   staff: StaffAssignment[];
+  /** Perfil Cliente: empresas cuyos eventos puede ver (solo lectura) */
+  clientTenants: { tenant_id: string; tenant_name: string }[];
 }
 
 /** Usuario actual + perfil, clientes y eventos asignados. Cacheado por request. */
@@ -64,7 +66,7 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
   // Un empleado desactivado pierde el acceso al instante
   if (user.employee_id && !user.employee_active) return null;
 
-  const [memberships, staff] = await Promise.all([
+  const [memberships, staff, clientTenants] = await Promise.all([
     query<Membership>(
       `select m.tenant_id, m.role, t.name as tenant_name
          from tenant_members m join tenants t on t.id = m.tenant_id
@@ -78,6 +80,14 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
           [user.employee_id],
         )
       : Promise.resolve([] as StaffAssignment[]),
+    user.employee_id && user.profile === "CLIENTE" && !user.is_platform_admin
+      ? query<{ tenant_id: string; tenant_name: string }>(
+          `select ec.tenant_id, t.name as tenant_name
+             from employee_clients ec join tenants t on t.id = ec.tenant_id
+            where ec.employee_id = $1 and t.is_active order by t.name`,
+          [user.employee_id],
+        )
+      : Promise.resolve([]),
   ]);
 
   const profile: Profile | null = user.is_platform_admin ? "ADMINISTRADOR" : user.profile;
@@ -85,6 +95,8 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
   if (!user.is_platform_admin && !profile && memberships.length === 0) return null;
   // Un coordinador sin clientes asignados no tiene acceso
   if (profile === "COORDINADOR" && memberships.length === 0) return null;
+  // Un usuario cliente sin empresa asignada tampoco
+  if (profile === "CLIENTE" && clientTenants.length === 0) return null;
 
   return {
     userId: user.id,
@@ -97,6 +109,7 @@ export const getViewer = cache(async (): Promise<Viewer | null> => {
     profile: profile ?? (memberships.length ? "COORDINADOR" : null),
     memberships,
     staff,
+    clientTenants,
   };
 });
 
@@ -188,7 +201,21 @@ export async function eventByCheckinKey(key: string) {
   return queryOne<EventRow>("select * from events where checkin_key = $1", [key]);
 }
 
-/** Inicio según perfil: el promotor va directo a acreditar. */
+/** Inicio según perfil: el promotor va directo a acreditar; el cliente, a su portal. */
 export function homeFor(viewer: Pick<Viewer, "profile">) {
-  return viewer.profile === "PROMOTOR" ? "/checkin" : "/admin";
+  return viewer.profile === "PROMOTOR" ? "/checkin" : viewer.profile === "CLIENTE" ? "/cliente" : "/admin";
+}
+
+/** El usuario puede ver reportes y dashboard del evento como cliente (o lo administra). */
+export function canViewAsClient(viewer: Viewer, event: Pick<EventRow, "tenant_id">) {
+  return canAdminTenant(viewer, event.tenant_id) || viewer.clientTenants.some((t) => t.tenant_id === event.tenant_id);
+}
+
+/** Evento visible en el portal del cliente (cliente de su empresa, coordinador o administrador). */
+export async function requireClientEvent(eventId: string) {
+  const viewer = await requireViewer();
+  if (!/^[0-9a-f-]{36}$/i.test(eventId)) notFound();
+  const event = await queryOne<EventRow>("select * from events where id = $1", [eventId]);
+  if (!event || !canViewAsClient(viewer, event)) notFound();
+  return { viewer, event };
 }

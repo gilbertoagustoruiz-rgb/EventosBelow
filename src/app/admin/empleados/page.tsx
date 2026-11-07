@@ -93,8 +93,8 @@ export default async function EmployeesPage({ searchParams }: { searchParams: Pr
                 <p className="text-xs text-slate-500">
                   {e.profile === "ADMINISTRADOR"
                     ? "Acceso a todos los clientes"
-                    : e.profile === "COORDINADOR"
-                      ? e.clients?.length ? `Clientes: ${e.clients.join(", ")}` : "Sin clientes asignados"
+                    : e.profile === "COORDINADOR" || e.profile === "CLIENTE"
+                      ? e.clients?.length ? `${e.profile === "CLIENTE" ? "Empresa" : "Clientes"}: ${e.clients.join(", ")}` : "Sin clientes asignados"
                       : `${e.events} evento(s) activos`}
                   {!e.user_id && " · sin acceso creado"}
                   {e.user_id && e.must_change_password && " · aún no cambia su contraseña temporal"}
@@ -133,6 +133,7 @@ const badge: Record<Profile, string> = {
   ADMINISTRADOR: "bg-indigo-50 text-indigo-700",
   COORDINADOR: "bg-sky-50 text-sky-700",
   SUPERVISOR: "bg-amber-50 text-amber-700",
+  CLIENTE: "bg-emerald-50 text-emerald-700",
   PROMOTOR: "bg-emerald-50 text-emerald-700",
 };
 

@@ -275,3 +275,19 @@ test("confirmación sin correo ni celular (solo DNI o código)", async () => {
     await cleanup(s);
   }
 });
+
+test("perfil cliente: ve su empresa pero no obtiene permisos de coordinador", async () => {
+  const s = await seed();
+  const c = uid();
+  const user = (await pool.query("insert into users(email,username,password_hash) values($1,$1,'x') returning id", [`cl-${c}@x.pe`])).rows[0].id;
+  const emp = (await pool.query("insert into employees(profile,full_name,email,user_id) values('CLIENTE','Cliente',$1,$2) returning id", [`cl-${c}@x.pe`, user])).rows[0].id;
+  try {
+    await pool.query("insert into employee_clients(employee_id,tenant_id) values($1,$2)", [emp, s.tenant]);
+    const members = (await pool.query("select count(*)::int n from tenant_members where user_id=$1", [user])).rows[0].n;
+    assert.equal(members, 0, "el cliente no entra en tenant_members (no puede editar)");
+  } finally {
+    await cleanup(s);
+    await pool.query("delete from employees where id=$1", [emp]);
+    await pool.query("delete from users where id=$1", [user]);
+  }
+});

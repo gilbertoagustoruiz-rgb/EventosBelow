@@ -14,7 +14,7 @@ export function AdminNavigation({ platformAdmin, reports = platformAdmin }: { pl
           { href: "/admin/clientes", label: "Clientes", icon: Building2, active: at("/admin/clientes") },
           { href: "/admin/proyectos", label: "Proyectos", icon: FolderKanban, active: at("/admin/proyectos") },
           { href: "/admin/empleados", label: "Empleados", icon: Users, active: at("/admin/empleados") },
-          { href: "/admin/asignaciones", label: "Coordinadores", icon: Network, active: at("/admin/asignaciones") },
+          { href: "/admin/asignaciones", label: "Accesos", icon: Network, active: at("/admin/asignaciones") },
           { href: "/admin/perfiles", label: "Perfiles", icon: ShieldCheck, active: at("/admin/perfiles") },
         ]
       : []),

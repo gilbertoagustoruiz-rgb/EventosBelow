@@ -83,9 +83,9 @@ export function EmployeeForm({ tenants }: { tenants: { id: string; name: string 
         </p>
       )}
 
-      {profile === "COORDINADOR" && tenants.length > 0 && (
+      {(profile === "COORDINADOR" || profile === "CLIENTE") && tenants.length > 0 && (
         <fieldset>
-          <legend className="label">Clientes que coordinará (también puedes hacerlo en Coordinadores)</legend>
+          <legend className="label">{profile === "CLIENTE" ? "Empresa cuyos eventos verá (también puedes hacerlo en Accesos por cliente)" : "Clientes que coordinará (también puedes hacerlo en Accesos por cliente)"}</legend>
           <div className="flex flex-wrap gap-2">
             {tenants.map((t) => (
               <label key={t.id} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm has-[:checked]:border-indigo-600 has-[:checked]:bg-indigo-50">

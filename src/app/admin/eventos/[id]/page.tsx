@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, BarChart3, Download, ExternalLink, FileSpreadsheet, RefreshCw, ScanLine, Search, Users } from "lucide-react";
+import { ArrowLeft, BarChart3, Eye, Download, ExternalLink, FileSpreadsheet, RefreshCw, ScanLine, Search, Users } from "lucide-react";
 import { requireEvent } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { withCheckinBy } from "@/lib/registrations";
@@ -102,6 +102,9 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
           <div className="flex flex-wrap gap-2">
             <Link href={`/admin/eventos/${event.id}/dashboard`} className="btn-ghost">
               <BarChart3 className="size-4" /> Dashboard
+            </Link>
+            <Link href={`/cliente/eventos/${event.id}`} className="btn-ghost">
+              <Eye className="size-4" /> Vista del cliente
             </Link>
             <Link href={`/checkin/${event.id}`} className="btn-ghost">
               <ScanLine className="size-4" /> Acreditar asistentes

@@ -15,7 +15,7 @@ const optional = (max: number) =>
 
 const employeeSchema = z
   .object({
-    profile: z.enum(["ADMINISTRADOR", "COORDINADOR", "SUPERVISOR", "PROMOTOR"], { message: "Elige un perfil" }),
+    profile: z.enum(["ADMINISTRADOR", "COORDINADOR", "SUPERVISOR", "PROMOTOR", "CLIENTE"], { message: "Elige un perfil" }),
     fullName: z.string().trim().min(3, "Ingresa el nombre completo").max(120),
     documentType: z.enum(DOCUMENT_TYPES),
     documentNumber: optional(20).transform((v) => v?.toUpperCase().replace(/[\s.-]/g, "")),
@@ -105,8 +105,8 @@ export async function createEmployee(_: FormState, fd: FormData): Promise<FormSt
         )
       ).rows[0];
 
-      // Solo los coordinadores se asignan a clientes; supervisores y promotores se agregan por evento
-      if (d.profile === "COORDINADOR") {
+      // Coordinadores y usuarios cliente se asignan a clientes; supervisores y promotores, por evento
+      if (d.profile === "COORDINADOR" || d.profile === "CLIENTE") {
         for (const tenantId of tenantIds) {
           await client.query("insert into employee_clients (employee_id, tenant_id) values ($1, $2) on conflict do nothing", [
             employee.id,

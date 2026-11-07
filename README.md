@@ -19,6 +19,7 @@ Jerarquía: **Cliente → Proyecto → Eventos**. Cada evento tiene fechas con a
 | **Supervisor del evento** | Correo o DNI y contraseña | Ve el dashboard y toda la gestión de los promotores de sus eventos; **agrega o quita promotores**; acredita |
 | **Promotor del evento** | Correo o DNI y contraseña | Busca por **DNI o código de vendedor** o escanea el **QR** y confirma el ingreso; recibe la alerta si la persona ya ingresó y a qué hora |
 | Apoyo con enlace general | Enlace del evento | Acredita sin usuario (queda como “Enlace general”) |
+| **Cliente** | Correo o DNI y contraseña | Portal de solo lectura de su empresa: **dashboard en línea** (asistentes vs. base cargada, horas pico, ritmo de llegada, últimas llegadas, por fecha y por empresa) y descarga de las **bases de confirmación y asistencia** |
 | Asistente (invitado) | Público | Escribe su **DNI o código de vendedor**, se autocompletan sus datos de la base, elige el **día** y sus acompañantes |
 
 | Módulo | Ruta | Perfil |
@@ -27,13 +28,14 @@ Jerarquía: **Cliente → Proyecto → Eventos**. Cada evento tiene fechas con a
 | Clientes | `/admin/clientes` | Administrador |
 | Proyectos | `/admin/proyectos` | Administrador |
 | Empleados (usuarios) | `/admin/empleados` | Administrador |
-| Coordinadores por cliente | `/admin/asignaciones` | Administrador |
+| Accesos por cliente (coordinadores y usuarios cliente) | `/admin/asignaciones` | Administrador |
 | Perfiles | `/admin/perfiles` | Administrador |
 | Evento: fechas, invitados, personal, inscripciones | `/admin/eventos/[id]` | Administrador · Coordinador |
 | Base de invitados / carga Excel | `/admin/eventos/[id]/invitados` · `/importar` | Administrador · Coordinador |
 | Dashboard del evento | `/admin/eventos/[id]/dashboard` | Administrador · Coordinador · Supervisor |
 | Acreditación | `/checkin/[eventId]` | Todos los perfiles del evento |
 | Acreditación general | `/acreditar/[enlace]` | Apoyo eventual (sin login) |
+| Portal del cliente | `/cliente` · `/cliente/eventos/[id]` | Cliente (y vista previa para administrador y coordinador) |
 | Portal de confirmación | `/evento/[slug]` | Invitados |
 | Ticket con QR | `/evento/[slug]/ticket/[token]` | Asistente |
 
@@ -119,7 +121,7 @@ Funciones SQL (la lógica crítica vive en la base de datos):
 ```
 .do/app.yaml                  Especificación de DigitalOcean App Platform
 db/
-  migrations/                 0001…0011 (esquema y funciones)
+  migrations/                 0001…0012 (esquema y funciones)
   seed-demo.sql               Cliente y evento de ejemplo (opcional)
 scripts/
   migrate.mjs                 Aplica migraciones pendientes (npm run db:migrate)

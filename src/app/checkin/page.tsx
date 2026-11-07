@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ChevronRight, KeyRound, LogOut, ScanLine } from "lucide-react";
 import { requireViewer, visibleTenantFilter } from "@/lib/auth";
 import { PROFILES } from "@/lib/profiles";
@@ -12,6 +13,7 @@ export const dynamic = "force-dynamic";
 /** Eventos con fechas de hoy en adelante que el usuario puede acreditar. */
 export default async function CheckinIndex() {
   const viewer = await requireViewer();
+  if (!viewer.isPlatformAdmin && viewer.profile === "CLIENTE") redirect("/cliente");
   const list = await query<{
     id: string;
     name: string;

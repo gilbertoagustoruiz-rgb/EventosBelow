@@ -10,6 +10,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const viewer = await requireViewer();
   // Promotores trabajan solo en Acreditación; supervisores ven sus eventos y el dashboard
   if (!viewer.isPlatformAdmin && viewer.profile === "PROMOTOR") redirect("/checkin");
+  if (!viewer.isPlatformAdmin && viewer.profile === "CLIENTE") redirect("/cliente");
   if (!viewer.isPlatformAdmin && viewer.profile !== "SUPERVISOR" && viewer.memberships.length === 0) redirect("/login");
   const role = viewer.isPlatformAdmin ? "Administrador" : viewer.profile ? PROFILES[viewer.profile].label : "Coordinador";
 

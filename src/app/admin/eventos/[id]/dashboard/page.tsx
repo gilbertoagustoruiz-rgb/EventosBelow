@@ -5,7 +5,7 @@ import { query, queryOne } from "@/lib/db";
 import { brandStyle, formatClock, formatDateTime, formatDayShort, todayIn } from "@/lib/format";
 import { eventStaff, staffCandidates } from "@/lib/staff";
 import { EventStaff } from "../staff";
-import { AutoRefresh } from "./auto-refresh";
+import { AutoRefresh } from "@/components/auto-refresh";
 import type { EventDate } from "@/lib/types";
 
 export const dynamic = "force-dynamic";

@@ -55,7 +55,7 @@ export default async function TenantsPage() {
             </dl>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <Link href={`/admin/proyectos?cliente=${t.slug}`} className="btn-ghost py-2">Proyectos</Link>
-              <Link href={`/admin/asignaciones?cliente=${t.slug}`} className="btn-ghost py-2">Coordinadores</Link>
+              <Link href={`/admin/asignaciones?cliente=${t.slug}`} className="btn-ghost py-2">Accesos</Link>
             </div>
           </article>
         ))}

@@ -13,7 +13,7 @@ function refresh() {
   revalidatePath("/admin/clientes");
 }
 
-/** Asigna coordinadores activos a un cliente (supervisores y promotores se agregan por evento). */
+/** Asigna coordinadores o usuarios cliente activos a un cliente (supervisores y promotores se agregan por evento). */
 export async function assignEmployee(_: FormState, fd: FormData): Promise<FormState> {
   await requireAdmin();
   const tenantId = String(fd.get("tenantId") ?? "");
@@ -21,10 +21,10 @@ export async function assignEmployee(_: FormState, fd: FormData): Promise<FormSt
   if (!UUID.test(tenantId) || employeeIds.length === 0) return { message: "Selecciona al menos un empleado." };
 
   const valid = await query<{ id: string }>(
-    `select id from employees where id = any($1) and is_active and profile = 'COORDINADOR'`,
+    `select id from employees where id = any($1) and is_active and profile in ('COORDINADOR', 'CLIENTE')`,
     [employeeIds],
   );
-  if (valid.length === 0) return { message: "Solo se asignan coordinadores activos." };
+  if (valid.length === 0) return { message: "Solo se asignan coordinadores o usuarios cliente activos." };
 
   await query(
     `insert into employee_clients (employee_id, tenant_id)
@@ -32,7 +32,7 @@ export async function assignEmployee(_: FormState, fd: FormData): Promise<FormSt
     [valid.map((v) => v.id), tenantId],
   );
   refresh();
-  return { ok: true, message: valid.length === 1 ? "Coordinador asignado." : `${valid.length} coordinadores asignados.` };
+  return { ok: true, message: valid.length === 1 ? "Acceso asignado." : `${valid.length} accesos asignados.` };
 }
 
 /** Quita la asignación: el coordinador pierde el acceso a los eventos de ese cliente. */

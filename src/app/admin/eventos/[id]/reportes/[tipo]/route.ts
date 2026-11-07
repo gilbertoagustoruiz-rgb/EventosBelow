@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { requireEvent } from "@/lib/auth";
+import { requireClientEvent } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { formatClock, formatDateTime, formatDayShort, formatTime } from "@/lib/format";
 import { addBrandedSheet, fileName, loadLogo, type Brand } from "@/lib/report-xlsx";
@@ -12,12 +12,12 @@ const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : "â€
 
 /**
  * GET /admin/eventos/:id/reportes/confirmacion | asistencia
- * Excel con el logo y los colores del evento (administrador y coordinador).
+ * Excel con el logo y los colores del evento (administrador, coordinador y cliente).
  */
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string; tipo: string }> }) {
   const { id, tipo } = await params;
   if (tipo !== "confirmacion" && tipo !== "asistencia") return new Response("Not found", { status: 404 });
-  const { event } = await requireEvent(id, "admin");
+  const { event } = await requireClientEvent(id); // administrador, coordinador o cliente de la empresa
   const tz = event.timezone;
 
   const [client, dates] = await Promise.all([
