@@ -5,6 +5,7 @@ import { query, queryOne } from "@/lib/db";
 import { withCheckinBy } from "@/lib/registrations";
 import { appUrl, brandStyle, formatDateTime, formatDayShort } from "@/lib/format";
 import { EventStaff } from "./staff";
+import { ResetEvent } from "./reset";
 import { eventStaff, staffCandidates } from "@/lib/staff";
 import { projectOptions } from "@/lib/projects";
 import { EventForm } from "@/components/admin/event-form";
@@ -64,6 +65,13 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
     projectOptions(viewer),
     queryOne<{ n: number }>("select count(*)::int as n from invitees where event_id = $1", [id]),
   ]);
+  const resetCounts = viewer.isPlatformAdmin
+    ? await queryOne<{ regs: number; logs: number }>(
+        `select (select count(*) from registrations where event_id = $1)::int as regs,
+                (select count(*) from checkin_log where event_id = $1)::int as logs`,
+        [id],
+      )
+    : null;
   const count = countRow?.n ?? 0;
 
   const publicUrl = appUrl(`/evento/${event.slug}`);
@@ -283,6 +291,10 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
         <h2 className="mb-6 text-lg font-semibold">Configuración y branding</h2>
         <EventForm event={event} projects={projects} />
       </section>
+
+      {resetCounts && (
+        <ResetEvent eventId={event.id} registrations={resetCounts.regs} checkins={resetCounts.logs} invitees={inviteeCount?.n ?? 0} />
+      )}
     </div>
   );
 }
