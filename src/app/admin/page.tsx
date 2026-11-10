@@ -66,11 +66,11 @@ export default async function AdminHome() {
         {[
           ["Eventos creados", events.length],
           ["Inscripciones abiertas", events.filter((e) => e.is_published && e.registration_open).length],
-          ["Cupos ocupados", events.reduce((sum, e) => sum + e.taken, 0)],
+          ["Titulares confirmados", events.reduce((sum, e) => sum + e.taken, 0)],
           ["Cupos disponibles", events.reduce((sum, e) => sum + Math.max(0, e.capacity - e.taken), 0)],
         ].map(([label, value]) => <div key={label} className="card p-4 sm:p-5"><p className="text-xs font-medium text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold tabular-nums tracking-tight">{value}</p></div>)}
       </div>
-      <p className="mt-3 text-xs text-slate-500">Totales de todas las fechas configuradas. Un acompañante también ocupa un cupo.</p>
+      <p className="mt-3 text-xs text-slate-500">Totales de todas las fechas configuradas. El aforo cuenta solo titulares; los acompañantes no ocupan cupo.</p>
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {events.map((e) => {
@@ -99,7 +99,7 @@ export default async function AdminHome() {
                 <div className="mt-4 flex items-center justify-between text-sm">
                   <span className="tabular-nums text-slate-700">
                     <strong>{taken}</strong>
-                    <span className="text-slate-500"> / {cap} cupos ocupados</span>
+                    <span className="text-slate-500"> / {cap} titulares confirmados</span>
                   </span>
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-semibold ${

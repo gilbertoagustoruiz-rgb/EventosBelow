@@ -18,7 +18,7 @@ export function DatesManager({ eventId, dates }: { eventId: string; dates: Event
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-slate-600">Agrega cada día y horario del evento. El aforo cuenta personas, incluidos los acompañantes.</p>
+      <p className="text-sm text-slate-600">Agrega cada día y horario del evento. El aforo cuenta solo titulares: los acompañantes se registran pero no ocupan cupo.</p>
       <div className="overflow-x-auto" role="region" aria-label="Fechas y cupos del evento" tabIndex={0}>
         <table className="w-full text-sm">
           <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
@@ -134,7 +134,7 @@ function DateRow({ eventId, date: d }: { eventId: string; date: EventDate }) {
             </div>
             {d.registered_count > 0 && (
               <p className="text-xs text-amber-700">
-                Esta fecha ya tiene {d.registered_count} cupos ocupados: si cambias el día o el horario, esas confirmaciones e
+                Esta fecha ya tiene {d.registered_count} titulares confirmados: si cambias el día o el horario, esas confirmaciones e
                 invitados asignados pasan al nuevo día. El aforo no puede bajar de {d.registered_count}.
               </p>
             )}

@@ -39,11 +39,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   wb.created = new Date();
 
   if (tipo === "confirmacion") {
-    const summary = await query<{ id: string; assigned: number; confirmed: number; persons: number; pending: number }>(
+    const summary = await query<{ id: string; assigned: number; confirmed: number; persons: number; pending: number; solo: number; paired: number }>(
       `select d.id,
               (select count(*) from invitees i where i.event_date_id = d.id)::int as assigned,
               (select count(*) from registrations r where r.event_date_id = d.id and r.status <> 'CANCELADO')::int as confirmed,
               (select coalesce(sum(r.seats), 0) from registrations r where r.event_date_id = d.id and r.status <> 'CANCELADO')::int as persons,
+              (select count(*) from registrations r where r.event_date_id = d.id and r.status <> 'CANCELADO' and r.companions_count = 0)::int as solo,
+              (select count(*) from registrations r where r.event_date_id = d.id and r.status <> 'CANCELADO' and r.companions_count > 0)::int as paired,
               (select count(*) from invitees i where i.event_date_id = d.id
                  and not exists (select 1 from registrations r where r.invitee_id = i.id and r.status <> 'CANCELADO'))::int as pending
          from event_dates d where d.event_id = $1`,
@@ -55,27 +57,29 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
          from invitees i where i.event_id = $1 and i.event_date_id is null`,
       [id],
     );
-    type S = { label: string; hours: string; capacity: number | string; assigned: number | string; confirmed: number; persons: number; pending: number | string; rate: string };
+    type S = { label: string; hours: string; capacity: number | string; assigned: number | string; confirmed: number; solo: number; paired: number; persons: number; pending: number | string; rate: string };
     const sRows: S[] = dates.map((d) => {
       const s = summary.find((x) => x.id === d.id)!;
       return {
         label: dateLabel(d), hours: `${formatTime(d.starts_at)} – ${formatTime(d.ends_at)}`, capacity: d.capacity,
-        assigned: s.assigned, confirmed: s.confirmed, persons: s.persons, pending: s.pending, rate: pct(s.confirmed, s.assigned),
+        assigned: s.assigned, confirmed: s.confirmed, solo: s.solo, paired: s.paired, persons: s.persons, pending: s.pending, rate: pct(s.confirmed, s.assigned),
       };
     });
     if (unassigned?.n) {
-      sRows.push({ label: "Sin fecha asignada", hours: "", capacity: "", assigned: unassigned.n, confirmed: 0, persons: 0, pending: unassigned.pending, rate: "" });
+      sRows.push({ label: "Sin fecha asignada", hours: "", capacity: "", assigned: unassigned.n, confirmed: 0, solo: 0, paired: 0, persons: 0, pending: unassigned.pending, rate: "" });
     }
-    const tot = sRows.reduce((a, r) => ({ a: a.a + Number(r.assigned || 0), c: a.c + r.confirmed, p: a.p + r.persons, pe: a.pe + Number(r.pending || 0) }), { a: 0, c: 0, p: 0, pe: 0 });
-    sRows.push({ label: "TOTAL", hours: "", capacity: dates.reduce((n, d) => n + d.capacity, 0), assigned: tot.a, confirmed: tot.c, persons: tot.p, pending: tot.pe, rate: pct(tot.c, tot.a) });
+    const tot = sRows.reduce((a, r) => ({ a: a.a + Number(r.assigned || 0), c: a.c + r.confirmed, so: a.so + r.solo, pa: a.pa + r.paired, p: a.p + r.persons, pe: a.pe + Number(r.pending || 0) }), { a: 0, c: 0, so: 0, pa: 0, p: 0, pe: 0 });
+    sRows.push({ label: "TOTAL", hours: "", capacity: dates.reduce((n, d) => n + d.capacity, 0), assigned: tot.a, confirmed: tot.c, solo: tot.so, paired: tot.pa, persons: tot.p, pending: tot.pe, rate: pct(tot.c, tot.a) });
     const resumen = addBrandedSheet(wb, brand, {
       name: "Resumen", title: "Base de confirmación", rows: sRows,
       columns: [
         { header: "Fecha", width: 24, value: (r) => r.label },
         { header: "Horario", width: 15, value: (r) => r.hours },
-        { header: "Aforo", width: 10, value: (r) => r.capacity, align: "right" },
+        { header: "Aforo (titulares)", width: 11, value: (r) => r.capacity, align: "right" },
         { header: "Invitados en la base", width: 14, value: (r) => r.assigned, align: "right" },
-        { header: "Confirmaron", width: 13, value: (r) => r.confirmed, align: "right" },
+        { header: "Titulares confirmados", width: 13, value: (r) => r.confirmed, align: "right" },
+        { header: "Solos", width: 9, value: (r) => r.solo, align: "right" },
+        { header: "Con acompañante", width: 13, value: (r) => r.paired, align: "right" },
         { header: "Personas (con acompañantes)", width: 16, value: (r) => r.persons, align: "right" },
         { header: "Pendientes", width: 12, value: (r) => r.pending, align: "right" },
         { header: "% confirmación", width: 14, value: (r) => r.rate, align: "right" },

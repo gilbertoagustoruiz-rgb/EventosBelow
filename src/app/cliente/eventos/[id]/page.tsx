@@ -5,6 +5,7 @@ import { query, queryOne } from "@/lib/db";
 import { brandStyle, formatClock, formatDayShort, todayIn } from "@/lib/format";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { ReportLinks } from "@/components/admin/report-links";
+import { ConfirmationSummary } from "@/components/confirmation-summary";
 import type { EventDate } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -239,6 +240,8 @@ export default async function ClientDashboard({
           <Kpi icon={<Timer />} label="Hora media de llegada" text={clock12(arrival?.median_time)} hint="la mitad llegó antes de esta hora" />
         )}
       </section>
+
+      <ConfirmationSummary eventId={id} dateId={fecha} />
 
       <div className="grid gap-6 lg:grid-cols-5">
         {/* Horas pico */}

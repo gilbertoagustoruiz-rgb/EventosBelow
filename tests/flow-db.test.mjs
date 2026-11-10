@@ -123,7 +123,7 @@ test("acompañantes: máximo por evento, obligatorios y sin repetir documentos",
     const ok = await register(s, s.day, await invitee(s), [comp("Uno"), comp("Dos")]);
     const reg = (await pool.query("select companions_count, seats from registrations where id=$1", [ok.out_registration_id])).rows[0];
     assert.deepEqual(reg, { companions_count: 2, seats: 3 });
-    assert.equal(await taken(s.day), 3);
+    assert.equal(await taken(s.day), 1, "los acompañantes no ocupan cupo");
 
     const req = await seed({ mode: "REQUIRED", max: 1 });
     await assert.rejects(register(req, req.day, await invitee(req)), err(/COMPANION_REQUIRED/));
@@ -136,14 +136,14 @@ test("acompañantes: máximo por evento, obligatorios y sin repetir documentos",
   }
 });
 
-test("aforo: titular + acompañantes no superan la capacidad, ni en paralelo", async () => {
-  const s = await seed({ capacity: 4, max: 2 });
+test("aforo: cuenta solo titulares (acompañantes no ocupan cupo), también en paralelo", async () => {
+  const s = await seed({ capacity: 2, max: 2 });
   try {
     const invs = await Promise.all(Array.from({ length: 4 }, () => invitee(s)));
     const results = await Promise.allSettled(invs.map((i) => register(s, s.day, i, [comp("A")])));
-    assert.equal(results.filter((r) => r.status === "fulfilled").length, 2, "solo caben 2 grupos de 2");
+    assert.equal(results.filter((r) => r.status === "fulfilled").length, 2, "caben 2 titulares, cada uno con su acompañante");
     assert.ok(results.filter((r) => r.status === "rejected").every((r) => /SOLD_OUT/.test(r.reason.message)));
-    assert.equal(await taken(s.day), 4);
+    assert.equal(await taken(s.day), 2);
   } finally {
     await cleanup(s);
   }
@@ -191,11 +191,11 @@ test("acreditación por persona: parcial, reingreso, otra fecha y bitácora", as
   }
 });
 
-test("cancelar libera todos los cupos del grupo", async () => {
+test("cancelar libera el cupo del titular", async () => {
   const s = await seed();
   try {
     const r = await register(s, s.day, await invitee(s), [comp("A"), comp("B")]);
-    assert.equal(await taken(s.day), 3);
+    assert.equal(await taken(s.day), 1);
     await pool.query("select cancel_registration($1)", [r.out_registration_id]);
     assert.equal(await taken(s.day), 0);
   } finally {
@@ -302,22 +302,22 @@ test("regularizar: agregar y quitar acompañantes después de confirmar", async 
     const c1 = await add("70000001");
     await assert.rejects(add("70000001"), err(/COMPANION_DUPLICATE/));
     await add("70000002");
-    assert.equal(await taken(s.day), 3);
+    assert.equal(await taken(s.day), 1, "agregar acompañantes no descuenta cupo");
     await assert.rejects(add("70000003"), err(/TOO_MANY_COMPANIONS/), "máximo del evento");
     const reg = (await pool.query("select companions_count, seats from registrations where id=$1", [r.out_registration_id])).rows[0];
     assert.deepEqual(reg, { companions_count: 2, seats: 3 });
 
     await pool.query("select remove_companion($1,$2)", [r.out_registration_id, c1]);
-    assert.equal(await taken(s.day), 2, "quitar libera el cupo");
+    assert.equal(await taken(s.day), 1);
     const c3 = await add("70000003");
     assert.ok(c3, "se puede volver a agregar");
     await pool.query("select check_in($1,$2,false,$3::uuid[],null,null,'DOCUMENTO')", [r.out_registration_id, s.day, [c3]]);
     await assert.rejects(pool.query("select remove_companion($1,$2)", [r.out_registration_id, c3]), /ALREADY_CHECKED_IN/);
 
-    // Sin cupo en la fecha
+    // Fecha llena de titulares: igual se puede agregar acompañante
     const s2 = await seed({ max: 2, capacity: 1 });
     const r2 = await register(s2, s2.day, await invitee(s2));
-    await assert.rejects(pool.query("select add_companion($1,'Uno','DNI','71111111')", [r2.out_registration_id]), /SOLD_OUT/);
+    assert.ok((await pool.query("select add_companion($1,'Uno','DNI','71111111') id", [r2.out_registration_id])).rows[0].id);
     await cleanup(s2);
   } finally {
     await cleanup(s);

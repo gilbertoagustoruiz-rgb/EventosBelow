@@ -216,7 +216,7 @@ export function EventForm({ event, projects, defaultProjectId }: Props) {
             <label className="label" htmlFor="maxCompanions">Máximo de acompañantes por invitado</label>
             <input id="maxCompanions" name="maxCompanions" type="number" min={1} max={10}
               defaultValue={Math.max(1, event?.max_companions ?? 1)} className="input" />
-            <p className="mt-1 text-xs text-slate-500">Cada acompañante registra nombre y documento, y ocupa un cupo.</p>
+            <p className="mt-1 text-xs text-slate-500">Cada acompañante registra nombre y documento. No ocupa cupo: el aforo cuenta solo titulares.</p>
             <FieldError error={e.maxCompanions} />
           </div>
         )}

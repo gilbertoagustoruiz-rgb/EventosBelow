@@ -17,7 +17,6 @@ const UUID = /^[0-9a-f-]{36}$/i;
 
 const ERRORS: Record<string, string> = {
   TOO_MANY_COMPANIONS: "Ya registraste el máximo de acompañantes permitido para este evento.",
-  SOLD_OUT: "Ya no quedan cupos en tu fecha para agregar un acompañante.",
   COMPANION_IS_HOLDER: "El acompañante no puede tener tu mismo documento.",
   COMPANION_DUPLICATE: "Ese acompañante ya está registrado en tu confirmación.",
   COMPANION_REQUIRED: "Este evento requiere al menos un acompañante.",
@@ -76,5 +75,5 @@ export async function removeCompanion(token: string, companionId: string): Promi
     return fail(err);
   }
   revalidatePath(`/evento/${reg.slug}/ticket/${token}`);
-  return { ok: true, message: "Acompañante quitado. Se liberó su cupo." };
+  return { ok: true, message: "Acompañante quitado de tu confirmación." };
 }

@@ -48,7 +48,7 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
   const errorRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (formError) errorRef.current?.focus(); }, [formError]);
 
-  const seatsNeeded = 1 + companions.length;
+  const seatsNeeded = 1 + companions.length; // personas del grupo (el cupo es solo del titular)
 
   // Cupos casi en tiempo real: polling + al volver a la pestaña
   const refreshAvailability = useCallback(async () => {
@@ -75,7 +75,7 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
 
   const selectedLeft = dateId ? (remaining[dateId] ?? 0) : null;
   const selectedDate = dates.find((d) => d.id === dateId);
-  const selectedInsufficient = selectedLeft !== null && selectedLeft < seatsNeeded;
+  const selectedInsufficient = selectedLeft !== null && selectedLeft < 1;
 
   function clearError(key: string) {
     setFormError(null);
@@ -218,7 +218,7 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
           {dates.filter((d) => !invitee.assignedDateId || d.id === invitee.assignedDateId).map((d) => {
             const left = remaining[d.id] ?? 0;
             const notAssigned = Boolean(invitee.assignedDateId) && d.id !== invitee.assignedDateId;
-            const disabled = notAssigned || left < seatsNeeded;
+            const disabled = notAssigned || left < 1;
             const selected = d.id === dateId;
             const low = left > 0 && left <= Math.max(5, d.capacity * 0.1);
             return (
@@ -251,7 +251,7 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
                     : left === 0
                     ? "Agotado"
                     : disabled
-                      ? `Quedan ${left} cupos (no alcanza para ${seatsNeeded} personas)`
+                      ? "No es tu fecha asignada"
                       : `${left} ${left === 1 ? "cupo disponible" : "cupos disponibles"}`}
                 </p>
               </button>
@@ -273,7 +273,7 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
               <p className="font-medium">
                 {companions.length === 0 ? "Asistiré solo" : `${companions.length} ${companions.length === 1 ? "acompañante" : "acompañantes"}`}
               </p>
-              <p className="text-slate-500">Máximo {maxCompanions}. Cada acompañante ocupa un cupo.</p>
+              <p className="text-slate-500">Máximo {maxCompanions}, con su nombre y documento.</p>
             </div>
             <div className="flex items-center gap-2">
               <button type="button" className="btn-ghost size-10 p-0" aria-label="Quitar acompañante"

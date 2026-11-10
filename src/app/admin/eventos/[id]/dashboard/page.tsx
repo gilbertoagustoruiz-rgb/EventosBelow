@@ -5,6 +5,7 @@ import { query, queryOne } from "@/lib/db";
 import { brandStyle, formatClock, formatDateTime, formatDayShort, todayIn } from "@/lib/format";
 import { eventStaff, staffCandidates } from "@/lib/staff";
 import { EventStaff } from "../staff";
+import { ConfirmationSummary } from "@/components/confirmation-summary";
 import { AutoRefresh } from "@/components/auto-refresh";
 import type { EventDate } from "@/lib/types";
 
@@ -148,6 +149,8 @@ export default async function DashboardPage({
       <div className="h-2 overflow-hidden rounded-full bg-slate-100" aria-hidden>
         <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${Math.min(100, pct)}%` }} />
       </div>
+
+      <ConfirmationSummary eventId={id} dateId={fecha} />
 
       <div className="grid gap-6 lg:grid-cols-5">
         <section className="card p-5 lg:col-span-3">

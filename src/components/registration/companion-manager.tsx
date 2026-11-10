@@ -46,7 +46,7 @@ export function CompanionManager({
   }
 
   function remove(c: Companion) {
-    if (!window.confirm(`¿Quitar a ${c.fullName} de tu confirmación? Se liberará su cupo.`)) return;
+    if (!window.confirm(`¿Quitar a ${c.fullName} de tu confirmación?`)) return;
     setMessage(null);
     start(async () => {
       const res = await removeCompanion(token, c.id);

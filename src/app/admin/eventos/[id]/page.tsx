@@ -280,7 +280,7 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
                         <form action={cancelRegistration}>
                           <input type="hidden" name="eventId" value={event.id} />
                           <input type="hidden" name="registrationId" value={r.id} />
-                          <ConfirmButton message={`¿Cancelar el registro de ${r.full_name}? Se liberarán sus cupos.`}>Cancelar</ConfirmButton>
+                          <ConfirmButton message={`¿Cancelar el registro de ${r.full_name}? Se liberará su cupo.`}>Cancelar</ConfirmButton>
                         </form>
                       )}
                     </td>
