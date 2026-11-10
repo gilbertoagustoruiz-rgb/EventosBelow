@@ -49,6 +49,7 @@ Jerarquía: **Cliente → Proyecto → Eventos**. Cada evento tiene fechas con a
 - **Eventos**: proyecto, nombre, descripción, lugar, enlace (`slug`), **logo** y **color primario** con vista previa; acompañantes *Sin / Opcional / Obligatorio* con **máximo configurable (hasta 10)**, cada uno con nombre y documento; publicación e inscripciones abiertas/cerradas.
 - **Fechas y aforo**: varias fechas por evento con horario, etiqueta y aforo, todo editable (el aforo no baja de los cupos ocupados; los confirmados siguen a su fecha). El aforo cuenta solo titulares: los acompañantes se registran pero no ocupan cupo.
 - **Base de invitados**: carga desde Excel (.xlsx, hasta 5 000 filas) con vista previa fila por fila y la lista de columnas reconocidas e ignoradas; reconoce variantes de encabezados (`N° de documento`, `Id RH`, `Código vendedor`, `Nombre Completo`, `Fecha de asistencia`…). Si trae **fecha de asistencia**, el invitado solo puede confirmar esa fecha. Si el documento ya existe, actualiza sus datos. También se agregan o quitan invitados uno a uno, y se ve quién ya confirmó su día.
+- **Editar o eliminar asistentes** (solo administrador general): datos del titular, cambio de fecha (mueve su cupo), acompañantes (editar, agregar, quitar), anular un ingreso marcado por error y eliminar la inscripción liberando su cupo.
 - **Inscripciones**: búsqueda por nombre, correo, documento o código; acompañantes con su documento y cuántos ingresaron; cancelación (libera todos los cupos del grupo).
 - **Generar QR** del enlace de confirmación (junto a «Copiar»): QR con el logo del evento al centro y corrección de errores alta; descarga en PNG 2048 × 2048 px o SVG vectorial.
 - **Reportes** (`/admin/reportes` y en cada evento; administrador y coordinador): **Base de confirmación** (resumen por fecha, confirmados, pendientes) y **Base de asistencia** (resumen con hora pico, asistentes con hora y quién acreditó, no asistieron), en Excel con el **logo y los colores del evento**.
@@ -124,7 +125,7 @@ Funciones SQL (la lógica crítica vive en la base de datos):
 ```
 .do/app.yaml                  Especificación de DigitalOcean App Platform
 db/
-  migrations/                 0001…0014 (esquema y funciones)
+  migrations/                 0001…0015 (esquema y funciones)
   seed-demo.sql               Cliente y evento de ejemplo (opcional)
 scripts/
   migrate.mjs                 Aplica migraciones pendientes (npm run db:migrate)

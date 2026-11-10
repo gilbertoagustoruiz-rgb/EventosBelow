@@ -323,3 +323,46 @@ test("regularizar: agregar y quitar acompañantes después de confirmar", async 
     await cleanup(s);
   }
 });
+
+test("administrador: editar, cambiar de fecha, anular ingreso y eliminar asistente", async () => {
+  const s = await seed({ max: 2, capacity: 5 });
+  try {
+    const inv = await invitee(s);
+    const r = await register(s, s.day, inv, [comp("Uno")]);
+    const id = r.out_registration_id;
+    const upd = (date, doc = inv.doc) =>
+      pool.query("select admin_update_registration($1,$2,'Nombre Corregido','DNI',$3,'V-9','Empresa','a@b.pe','999888777')", [id, date, doc]);
+
+    await upd(s.day2);
+    assert.equal(await taken(s.day), 0);
+    assert.equal(await taken(s.day2), 1, "el cupo se mueve a la nueva fecha");
+    const row = (await pool.query("select full_name, employee_code, email, event_date_id from registrations where id=$1", [id])).rows[0];
+    assert.deepEqual(row, { full_name: "Nombre Corregido", employee_code: "V-9", email: "a@b.pe", event_date_id: s.day2 });
+    assert.equal((await pool.query("select event_date_id from invitees where id=$1", [inv.id])).rows[0].event_date_id, s.day2, "la fecha asignada sigue");
+
+    const otro = await register(s, s.day2, await invitee(s));
+    const otroDoc = (await pool.query("select document_number from registrations where id=$1", [otro.out_registration_id])).rows[0].document_number;
+    await assert.rejects(upd(s.day2, otroDoc), err(/DUPLICATE/));
+
+    const [c] = (await pool.query("select id from companions where registration_id=$1", [id])).rows;
+    await assert.rejects(pool.query("select admin_update_companion($1,'Uno Bis','DNI',$2)", [c.id, inv.doc]), err(/COMPANION_IS_HOLDER/));
+    await pool.query("select admin_update_companion($1,'Uno Bis','DNI','76543210')", [c.id]);
+
+    await pool.query("select check_in($1,$2,true,$3::uuid[],null,null,'DOCUMENTO')", [id, s.day2, [c.id]]);
+    await assert.rejects(upd(s.day), err(/ALREADY_CHECKED_IN/), "no se cambia de fecha a quien ya ingresó");
+    const n = (await pool.query("select admin_undo_checkin($1,true,$2::uuid[]) n", [id, [c.id]])).rows[0].n;
+    assert.equal(n, 2);
+    const after = (await pool.query("select status, holder_checked_in_at from registrations where id=$1", [id])).rows[0];
+    assert.deepEqual(after, { status: "REGISTRADO", holder_checked_in_at: null });
+    assert.equal((await pool.query("select count(*)::int n from checkin_log where registration_id=$1 and result='INGRESO'", [id])).rows[0].n, 0, "la bitácora ya no lo cuenta");
+
+    await pool.query("select admin_delete_registration($1)", [id]);
+    assert.equal(await taken(s.day2), 1, "liberó su cupo (queda el otro)");
+    assert.equal((await pool.query("select count(*)::int n from companions where registration_id=$1", [id])).rows[0].n, 0);
+    await assert.rejects(register(s, s.day, inv), err(/WRONG_DATE_ASSIGNED/), "su fecha asignada ahora es la nueva");
+    const again = await register(s, s.day2, inv);
+    assert.ok(again.out_token, "puede volver a confirmar");
+  } finally {
+    await cleanup(s);
+  }
+});

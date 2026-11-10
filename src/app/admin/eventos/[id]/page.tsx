@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { ArrowLeft, BarChart3, Eye, Download, ExternalLink, FileSpreadsheet, RefreshCw, ScanLine, Search, Users } from "lucide-react";
+import { ArrowLeft, BarChart3, Eye, Pencil, Trash2, Download, ExternalLink, FileSpreadsheet, RefreshCw, ScanLine, Search, Users } from "lucide-react";
 import { requireEvent } from "@/lib/auth";
 import { query, queryOne } from "@/lib/db";
 import { withCheckinBy } from "@/lib/registrations";
 import { appUrl, brandStyle, formatDateTime, formatDayShort } from "@/lib/format";
 import { EventStaff } from "./staff";
 import { ResetEvent } from "./reset";
+import { deleteRegistration } from "./inscripciones/[regId]/actions";
 import { GenerateQr } from "@/components/admin/generate-qr";
 import { ReportLinks } from "@/components/admin/report-links";
 import { eventStaff, staffCandidates } from "@/lib/staff";
@@ -276,13 +277,33 @@ export default async function EventAdminPage({ params, searchParams }: Props) {
                       {r.checked_in_by_label && <p className="text-xs text-slate-400">por {r.checked_in_by_label}</p>}
                     </td>
                     <td className="py-3 text-right whitespace-nowrap">
-                      {r.status === "REGISTRADO" && r.companions_in === 0 && (
-                        <form action={cancelRegistration}>
-                          <input type="hidden" name="eventId" value={event.id} />
-                          <input type="hidden" name="registrationId" value={r.id} />
-                          <ConfirmButton message={`¿Cancelar el registro de ${r.full_name}? Se liberará su cupo.`}>Cancelar</ConfirmButton>
-                        </form>
-                      )}
+                      <div className="flex items-center justify-end gap-1">
+                        {viewer.isPlatformAdmin && (
+                          <>
+                            <Link href={`/admin/eventos/${event.id}/inscripciones/${r.id}`} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-indigo-700 hover:bg-indigo-50">
+                              <Pencil className="size-3.5" /> Editar
+                            </Link>
+                            <form action={deleteRegistration}>
+                              <input type="hidden" name="eventId" value={event.id} />
+                              <input type="hidden" name="registrationId" value={r.id} />
+                              <input type="hidden" name="back" value="list" />
+                              <ConfirmButton
+                                message={`¿Eliminar a ${r.full_name}${r.companions_count ? ` y sus ${r.companions_count} acompañante(s)` : ""}? Se borran su inscripción e ingresos. No se puede deshacer.`}
+                                className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                              >
+                                <Trash2 className="size-4" /><span className="sr-only">Eliminar a {r.full_name}</span>
+                              </ConfirmButton>
+                            </form>
+                          </>
+                        )}
+                        {!viewer.isPlatformAdmin && r.status === "REGISTRADO" && r.companions_in === 0 && (
+                          <form action={cancelRegistration}>
+                            <input type="hidden" name="eventId" value={event.id} />
+                            <input type="hidden" name="registrationId" value={r.id} />
+                            <ConfirmButton message={`¿Cancelar el registro de ${r.full_name}? Se liberará su cupo.`}>Cancelar</ConfirmButton>
+                          </form>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
