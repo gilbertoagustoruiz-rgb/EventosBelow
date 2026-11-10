@@ -36,7 +36,6 @@ export async function ConfirmationSummary({ eventId, dateId }: { eventId: string
       <td className="py-2.5 pr-3">{label}</td>
       <td className="py-2.5 pr-3 text-right tabular-nums"><b>{r.holders.toLocaleString("es-PE")}</b> <span className="font-normal text-slate-400">/ {r.capacity.toLocaleString("es-PE")}</span></td>
       <td className="py-2.5 pr-3 text-right tabular-nums">{r.solo.toLocaleString("es-PE")}</td>
-      <td className="py-2.5 pr-3 text-right tabular-nums">{r.one.toLocaleString("es-PE")}</td>
       {showMore && <td className="py-2.5 pr-3 text-right tabular-nums">{r.more.toLocaleString("es-PE")}</td>}
       <td className="py-2.5 pr-3 text-right tabular-nums">{r.companions.toLocaleString("es-PE")}</td>
       <td className="py-2.5 text-right tabular-nums">{(r.holders + r.companions).toLocaleString("es-PE")}</td>
@@ -53,7 +52,6 @@ export async function ConfirmationSummary({ eventId, dateId }: { eventId: string
               <th className="pb-2 pr-3 text-left font-medium">Fecha</th>
               <th className="pb-2 pr-3 text-right font-medium">Titulares / aforo</th>
               <th className="pb-2 pr-3 text-right font-medium">Solos</th>
-              <th className="pb-2 pr-3 text-right font-medium">Con 1 acompañante</th>
               {showMore && <th className="pb-2 pr-3 text-right font-medium">Con 2 o más</th>}
               <th className="pb-2 pr-3 text-right font-medium">Acompañantes</th>
               <th className="pb-2 text-right font-medium">Total personas</th>
