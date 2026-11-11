@@ -220,7 +220,6 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
             const notAssigned = Boolean(invitee.assignedDateId) && d.id !== invitee.assignedDateId;
             const disabled = notAssigned || left < 1;
             const selected = d.id === dateId;
-            const low = left > 0 && left <= Math.max(5, d.capacity * 0.1);
             return (
               <button
                 key={d.id}
@@ -245,21 +244,16 @@ export function RegistrationForm({ slug, companionMode, maxCompanions, dates }: 
                   <Clock className="size-3.5" />
                   {formatTime(d.starts_at)} – {formatTime(d.ends_at)}
                 </p>
-                <p className={["mt-3 text-sm font-medium", left === 0 ? "text-red-600" : low ? "text-amber-600" : "text-emerald-700"].join(" ")}>
-                  {notAssigned
-                    ? "No es tu fecha asignada"
-                    : left === 0
-                    ? "Agotado"
-                    : disabled
-                      ? "No es tu fecha asignada"
-                      : `${left} ${left === 1 ? "cupo disponible" : "cupos disponibles"}`}
-                </p>
+                {/* Sin mostrar cuántos cupos quedan: solo se avisa si la fecha se llenó */}
+                {(notAssigned || left === 0) && (
+                  <p className="mt-3 text-sm font-medium text-red-600">{notAssigned ? "No es tu fecha asignada" : "Sin cupos"}</p>
+                )}
               </button>
             );
           })}
         </div>
         {errors.eventDateId && <FieldError>{errors.eventDateId}</FieldError>}
-        {selectedInsufficient && <FieldError>El día elegido ya no tiene cupos suficientes. Elige otro.</FieldError>}
+        {selectedInsufficient && <FieldError>El día elegido ya no tiene cupos. Comunícate con el organizador.</FieldError>}
       </Section>
 
       {allowCompanions && (
